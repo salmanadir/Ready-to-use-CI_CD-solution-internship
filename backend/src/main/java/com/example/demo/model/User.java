@@ -1,10 +1,10 @@
 package com.example.demo.model;  
   
-import java.time.LocalDateTime;
+
 import java.util.ArrayList;
 import java.util.List;
 
-import org.hibernate.annotations.CreationTimestamp;
+
   
 import com.fasterxml.jackson.annotation.JsonIgnore;
 
@@ -17,36 +17,43 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
+
   
-@Entity  
+@Entity
 @Table(name = "users")  
 public class User {  
     @Id    
-    @GeneratedValue(strategy = GenerationType.IDENTITY)  
-    private Long id;  
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column (name="user_id")
+    private Long userId;
   
-    @Column(unique = true, nullable = false)    
+    @Column(unique = true, nullable = false, name="github_id", length= 255)
     private String githubId;    
   
-    @Column(nullable = false)    
+    @Column(nullable = false, name="username", length = 255)    
     private String username;    
   
-    @Column(columnDefinition = "TEXT")    
+    @Column(name="token", length = 500)    
     private String token;    
+    
+    @Column(name= "email", length = 255)
+    private String email;
   
-    @CreationTimestamp    
-    private LocalDateTime createdAt;    
-  
-    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY)  
+    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY, orphanRemoval = true)  
     @JsonIgnore  
-    private List<Repo> repositories = new ArrayList<>();    
-  
-   
-    public User() {}    
-  
+    private List<Repo> repositories = new ArrayList<>();
 
-    public Long getId() { return id; }  
-    public void setId(Long id) { this.id = id; }  
+
+    public String getEmail() {
+        return email;
+    }
+
+    public void setEmail(String email) {
+        this.email = email;
+    }
+
+    public Long getId() { return userId; }
+    public void setId(Long id) { this.userId = id; }  
       
     public String getGithubId() { return githubId; }  
     public void setGithubId(String githubId) { this.githubId = githubId; }  
@@ -56,9 +63,7 @@ public class User {
       
     public String getToken() { return token; }  
     public void setToken(String token) { this.token = token; }  
-      
-    public LocalDateTime getCreatedAt() { return createdAt; }  
-    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }  
+
       
     public List<Repo> getRepositories() { return repositories; }  
     public void setRepositories(List<Repo> repositories) { this.repositories = repositories; }  

@@ -1,62 +1,29 @@
-package com.example.demo.model;  
-  
-import java.time.LocalDateTime;
-import java.util.ArrayList;  
+package com.example.demo.model;
+
+import jakarta.persistence.*;
+
 import java.util.List;
 
-import org.hibernate.annotations.CreationTimestamp;
+@Entity
+@Table(name = "deployment_architectures")
 
-import com.fasterxml.jackson.annotation.JsonIgnore;
+public class DeploymentArchitecture {
 
-import jakarta.persistence.CascadeType;
-import jakarta.persistence.Column;  
-import jakarta.persistence.Entity;
-import jakarta.persistence.FetchType;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
-import jakarta.persistence.OneToMany;
-import jakarta.persistence.Table;
-  
-@Entity  
-@Table(name = "deployment_architecture")  
-public class DeploymentArchitecture {  
-    @Id  
-    @GeneratedValue(strategy = GenerationType.IDENTITY)  
-    private Long id;  
-      
-    @Column(nullable = false, unique = true)  
-    private String name; 
-      
-    private String description;  
-      
-    @CreationTimestamp  
-    private LocalDateTime createdAt;  
-     @JsonIgnore
-    @OneToMany(mappedBy = "deploymentArchitecture", cascade = CascadeType.ALL, fetch = FetchType.LAZY)  
-    private List<TemplateCd> templateCds = new ArrayList<>();  
-      
-    
-    public DeploymentArchitecture() {}  
-      
-    public DeploymentArchitecture(String name, String description) {  
-        this.name = name;  
-        this.description = description;  
-    }  
-      
-    
-    public Long getId() { return id; }  
-    public void setId(Long id) { this.id = id; }  
-      
-    public String getName() { return name; }  
-    public void setName(String name) { this.name = name; }  
-      
-    public String getDescription() { return description; }  
-    public void setDescription(String description) { this.description = description; }  
-      
-    public LocalDateTime getCreatedAt() { return createdAt; }  
-    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }  
-      
-    public List<TemplateCd> getTemplateCds() { return templateCds; }  
-    public void setTemplateCds(List<TemplateCd> templateCds) { this.templateCds = templateCds; }  
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @Column(name = "deployment_architecture_id")
+    private Long deploymentArchitectureId;
+
+    @Column(name = "name_architecture", nullable = false, length = 255)
+    private String nameArchitecture;
+
+    @Column(name = "description_architecture", columnDefinition = "TEXT")
+    private String descriptionArchitecture;
+
+    @Column(name = "cd_template_key", nullable = false, unique = true, length = 255)
+    private String cdTemplateKey;
+
+    // Relation One-to-Many avec CdWorkflow
+    @OneToMany(mappedBy = "deploymentArchitecture", cascade = CascadeType.ALL, fetch = FetchType.LAZY, orphanRemoval = true)
+    private List<CdWorkflow> cdWorkflows;
 }
