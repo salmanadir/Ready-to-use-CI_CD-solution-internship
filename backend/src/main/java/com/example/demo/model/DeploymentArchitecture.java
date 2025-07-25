@@ -1,9 +1,10 @@
 package com.example.demo.model;
 
 import jakarta.persistence.*;
+import lombok.Data;
 
 import java.util.List;
-
+@Data
 @Entity
 @Table(name = "deployment_architectures")
 
