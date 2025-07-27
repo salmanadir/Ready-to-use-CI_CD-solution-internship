@@ -10,7 +10,7 @@ import java.util.Map;
 import java.util.HashMap;
 
 @RestController
-@RequestMapping("/api/user")
+@RequestMapping("/test/api/user")
 public class UserController {
 
     @GetMapping("/profile")
@@ -32,8 +32,7 @@ public class UserController {
     }
 
     @PutMapping("/profile")
-    public ResponseEntity<?> updateUserProfile(Authentication authentication, 
-                                             @RequestBody Map<String, Object> updates) {
+    public ResponseEntity<?> updateUserProfile(Authentication authentication, @RequestBody Map<String, Object> updates) {
         User user = (User) authentication.getPrincipal();
         
         // Mock update - in real implementation, you'd update the database
@@ -42,6 +41,7 @@ public class UserController {
         response.put("message", "Profile updated successfully");
         response.put("updated_fields", updates.keySet());
         response.put("user_id", user.getId());
+        response.put("username", user.getUsername());
         
         return ResponseEntity.ok(response);
     }
