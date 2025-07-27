@@ -10,6 +10,7 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.core.ParameterizedTypeReference;
 import com.example.demo.model.User;
 import com.example.demo.repository.UserRepository;
+import org.springframework.security.core.Authentication;
 
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
@@ -97,6 +98,76 @@ public class AuthController {
                 .body(Map.of("error", "Authentication failed: " + e.getMessage()));
         }
     }
+    @PostMapping("/refresh")
+public ResponseEntity<Map<String, Object>> refreshToken(Authentication authentication) {
+    User user = (User) authentication.getPrincipal();
+    String newJwt = generateJWT(user);  // Generate fresh token
+    
+    return ResponseEntity.ok(Map.of(
+        "success", true,
+        "token", newJwt,
+        "message", "Token refreshed"
+    ));
+}
+    @DeleteMapping("/delete-account")
+    public ResponseEntity<Map<String, Object>> deleteAccount(Authentication authentication) {
+    try {
+        User user = (User) authentication.getPrincipal();
+        
+        // Step 1: Revoke GitHub token
+        revokeGitHubToken(user.getToken());
+        
+        // Step 2: Delete user completely
+        userRepository.delete(user);
+        
+        Map<String, Object> response = new HashMap<>();
+        response.put("success", true);
+        response.put("message", "Account deleted successfully");
+        response.put("deleted_user", user.getUsername());
+        
+        return ResponseEntity.ok(response);
+        
+    } catch (Exception e) {
+        return ResponseEntity.status(500)
+            .body(Map.of(
+                "success", false,
+                "error", "Failed to delete account: " + e.getMessage()
+            ));
+    }
+    }
+    private boolean revokeGitHubToken(String accessToken) {
+    if (accessToken == null || accessToken.isEmpty()) {
+        return true; // Nothing to revoke
+    }
+    
+    try {
+        RestTemplate restTemplate = new RestTemplate();
+        
+        // GitHub's token revocation endpoint
+        String revokeUrl = "https://api.github.com/applications/" + clientId + "/token";
+        
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setBasicAuth(clientId, clientSecret); // Basic auth with client credentials
+        
+        Map<String, String> requestBody = Map.of("access_token", accessToken);
+        HttpEntity<Map<String, String>> request = new HttpEntity<>(requestBody, headers);
+        
+        ResponseEntity<String> response = restTemplate.exchange(
+            revokeUrl, 
+            HttpMethod.DELETE, 
+            request, 
+            String.class
+        );
+        // GitHub returns 204 No Content on successful revocation
+        return response.getStatusCode().is2xxSuccessful();
+        
+    } catch (Exception e) {
+        // Log error but don't fail the entire operation
+        System.err.println("Failed to revoke GitHub token: " + e.getMessage());
+        return false;
+    }
+}
 
     private String exchangeCodeForToken(String code) {
         try {
