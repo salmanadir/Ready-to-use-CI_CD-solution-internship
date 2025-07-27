@@ -16,7 +16,7 @@ public interface RepoRepository extends JpaRepository<Repo, Long> {
     Optional<Repo> findByGithubRepoId(String githubRepoId);
 
     // Recherche par nom
-    List<Repo> findByName(String name);
+    List<Repo> findByFullName(String fullName);
 
     // Recherche par propriétaire
     List<Repo> findByUser(User user);
@@ -28,7 +28,7 @@ public interface RepoRepository extends JpaRepository<Repo, Long> {
     boolean existsByGithubRepoId(String githubRepoId);
 
     // Recherche par nom et propriétaire
-    Optional<Repo> findByNameAndUser(String name, User user);
+    Optional<Repo> findByFullNameAndUser(String fullName, User user);
 
     // Requête personnalisée pour trouver un repo avec ses workflows CI
     @Query("SELECT r FROM Repo r LEFT JOIN FETCH r.ciWorkflows WHERE r.repoId = :repoId")

@@ -11,7 +11,7 @@ import java.util.Optional;
 public interface UserRepository extends JpaRepository<User, Long> {
 
     // Recherche par GitHub ID
-    Optional<User> findByGithubId(String githubId);
+    Optional<User> findByGithubId(Long githubId);
 
     // Recherche par username
     Optional<User> findByUsername(String username);
@@ -20,7 +20,7 @@ public interface UserRepository extends JpaRepository<User, Long> {
     Optional<User> findByEmail(String email);
 
     // Vérifier si un utilisateur existe par GitHub ID
-    boolean existsByGithubId(String githubId);
+    boolean existsByGithubId(Long githubId);
 
     // Vérifier si un utilisateur existe par username
     boolean existsByUsername(String username);

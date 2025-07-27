@@ -18,16 +18,16 @@ public interface DeploymentArchitectureRepository extends JpaRepository<Deployme
     Optional<DeploymentArchitecture> findByCdTemplateKey(String cdTemplateKey);
 
     // Recherche par nom
-    Optional<DeploymentArchitecture> findByName(String name);
+    Optional<DeploymentArchitecture> findByNameArchitecture(String nameArchitecture);
 
     // Vérifier si une architecture existe par clé de template
     boolean existsByCdTemplateKey(String cdTemplateKey);
 
     // Vérifier si une architecture existe par nom
-    boolean existsByName(String name);
+    boolean existsByNameArchitecture(String nameArchitecture);
 
     // Recherche par nom contenant (recherche partielle)
-    List<DeploymentArchitecture> findByNameContainingIgnoreCase(String name);
+    List<DeploymentArchitecture> findByNameArchitectureContainingIgnoreCase(String nameArchitecture);
 
     // Requête personnalisée pour trouver une architecture avec ses CD workflows
     @Query("SELECT d FROM DeploymentArchitecture d LEFT JOIN FETCH d.cdWorkflows WHERE d.deploymentArchitectureId = :deploymentArchitectureId")
