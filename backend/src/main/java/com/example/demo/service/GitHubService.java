@@ -1,14 +1,14 @@
 package com.example.demo.service;  
   
-import java.util.Base64;
-import java.util.List;
-import java.util.Map;
-
-import org.springframework.http.HttpEntity;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.HttpMethod;
-import org.springframework.http.ResponseEntity;
-import org.springframework.stereotype.Service;
+import java.util.Base64;  
+import java.util.List;  
+import java.util.Map;  
+  
+import org.springframework.http.HttpEntity;  
+import org.springframework.http.HttpHeaders;  
+import org.springframework.http.HttpMethod;  
+import org.springframework.http.ResponseEntity;  
+import org.springframework.stereotype.Service;  
 import org.springframework.web.client.RestClientException;  
 import org.springframework.web.client.RestTemplate;  
   
@@ -60,7 +60,7 @@ public class GitHubService {
         }  
     }  
   
-    // ✅ AJOUTÉ : Méthodes pour la détection de stack  
+    // Méthodes pour la détection de stack  
     public List<Map<String, Object>> getRepositoryContents(String repoUrl, String token, String path) {  
         String apiUrl = repoUrl.replace("https://github.com", GITHUB_API_URL + "/repos") + "/contents/" + (path != null ? path : "");  
           
