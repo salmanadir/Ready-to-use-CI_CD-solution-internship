@@ -39,7 +39,7 @@ public class User {
     @Column(name= "email", length = 255)
     private String email;
   
-    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY, orphanRemoval = true)  
+    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.EAGER, orphanRemoval = true)  
     @JsonIgnore  
     private List<Repo> repositories = new ArrayList<>();
 
@@ -52,8 +52,8 @@ public class User {
         this.email = email;
     }
 
-    public Long getId() { return userId; }
-    public void setId(Long id) { this.userId = id; }  
+    public Long getUserId() { return userId; }
+    public void setUserId(Long id) { this.userId = id; }  
       
     public String getGithubId() { return githubId; }  
     public void setGithubId(String githubId) { this.githubId = githubId; }  

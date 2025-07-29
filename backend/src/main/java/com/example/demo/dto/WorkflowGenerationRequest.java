@@ -1,18 +1,18 @@
 package com.example.demo.dto;
 
-import com.example.demo.model.Repo;
+
 import com.example.demo.model.TechStackInfo;
 
 public class WorkflowGenerationRequest {
-    private Repo repo;
+    private Long repoId;
     private TechStackInfo techStackInfo;
 
-    public Repo getRepo() {
-        return repo;
+    public Long getRepoId(){
+            return repoId;
+        
     }
-
-    public void setRepo(Repo repo) {
-        this.repo = repo;
+    public void setRepoId(Long repoId){
+        this.repoId=repoId;
     }
 
     public TechStackInfo getTechStackInfo() {
