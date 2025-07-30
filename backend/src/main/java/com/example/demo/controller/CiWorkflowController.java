@@ -40,7 +40,7 @@ public class CiWorkflowController {
 @Transactional
 public ResponseEntity<String> generateAndPushWorkflow(@RequestBody WorkflowGenerationRequest request) {
     try {
-        // Validation des paramètres d'entrée
+        
         if (request == null) {
             return ResponseEntity.badRequest().body("Request is null");
         }
@@ -77,22 +77,29 @@ public ResponseEntity<String> generateAndPushWorkflow(@RequestBody WorkflowGener
         placeholders.put("workingDirectory", info.getWorkingDirectory());
 
         String content = templateRenderer.renderTemplate(templatePath, placeholders);
+        
+        // Déterminer le nom du fichier
         String filePath = ".github/workflows/" + info.getBuildTool().toLowerCase() + ".yml";
+      
+        
         String token = repo.getUser().getToken();
 
-        // Push vers GitHub d'abord
-        String commitHash = gitHubService.pushWorkflowToGitHub(
+        // Push vers GitHub avec la stratégie choisie
+        GitHubService.PushResult result = gitHubService.pushWorkflowToGitHub(
             token, 
             repo.getFullName(), 
             repo.getDefaultBranch(), 
             filePath, 
-            content
+            content,
+            GitHubService.FileHandlingStrategy.valueOf(request.getFileHandlingStrategy().name())
         );
 
-        // Sauvegarde en base uniquement après le push réussi
-        CiWorkflow workflow = workflowService.saveWorkflowAfterPush(repo, content, commitHash);
+        // Sauvegarde en base (ghir si commit est effectué)
+        if (result.getCommitHash() != null) {
+            CiWorkflow workflow = workflowService.saveWorkflowAfterPush(repo, content, result.getCommitHash());
+        }
 
-        return ResponseEntity.ok("Workflow pushed and saved successfully with commit: " + commitHash);
+        return ResponseEntity.ok(result.getMessage() + " (Commit: " + result.getCommitHash() + ")");
 
     } catch (IOException e) {
         return ResponseEntity.internalServerError().body("IO Error: " + e.getMessage());
