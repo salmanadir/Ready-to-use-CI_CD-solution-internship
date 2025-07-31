@@ -27,8 +27,8 @@ public class User {
     @Column (name="user_id")
     private Long userId;
   
-    @Column(unique = true, nullable = false, name="github_id", length= 255)
-    private String githubId;    
+    @Column(unique = true, nullable = false, name="github_id")
+    private Long githubId;    
   
     @Column(nullable = false, name="username", length = 255)    
     private String username;    
@@ -38,6 +38,9 @@ public class User {
     
     @Column(name= "email", length = 255)
     private String email;
+
+    @Column(name="avatar_url", length = 500)  // ✅ Added avatar URL
+    private String avatarUrl;
   
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY, orphanRemoval = true)  
     @JsonIgnore  
@@ -55,16 +58,19 @@ public class User {
     public Long getId() { return userId; }
     public void setId(Long id) { this.userId = id; }  
       
-    public String getGithubId() { return githubId; }  
-    public void setGithubId(String githubId) { this.githubId = githubId; }  
-      
+    public Long getGithubId() { return githubId; }  
+    public void setGithubId(Long githubId) { this.githubId = githubId; }  
+
     public String getUsername() { return username; }  
     public void setUsername(String username) { this.username = username; }  
       
     public String getToken() { return token; }  
     public void setToken(String token) { this.token = token; }  
 
-      
+    public String getAvatarUrl() { return avatarUrl; }
+    public void setAvatarUrl(String avatarUrl) { this.avatarUrl = avatarUrl; }
+
     public List<Repo> getRepositories() { return repositories; }  
     public void setRepositories(List<Repo> repositories) { this.repositories = repositories; }  
+    
 }
