@@ -33,8 +33,8 @@ public class SecurityConfig {
             .authorizeHttpRequests(authz -> authz
                 .requestMatchers("/api/auth/delete-account").authenticated() // Requires auth
                 .requestMatchers("/api/auth/**").permitAll()
-                
                 .anyRequest().authenticated()                    // All other endpoints require auth
+
             )
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .csrf(csrf -> csrf.disable())
