@@ -27,10 +27,7 @@ public class RepoController {
     @Autowired  
     private RepoSelectionService repoSelectionService;  
   
-    // ✅ SUPPRIMÉ : L'ancien endpoint d'authentification  
-    // @PostMapping("/authenticate") - Remplacé par le système OAuth JWT  
-  
-    @GetMapping("/available")  // ✅ Plus besoin de {userId}  
+    @GetMapping("/available")  
     public ResponseEntity<?> getAvailableRepos(Authentication authentication) {  
         try {  
             User user = (User) authentication.getPrincipal();  
@@ -54,7 +51,7 @@ public class RepoController {
         }  
     }  
   
-    @GetMapping("/selected")  // ✅ Plus besoin de user/{userId}  
+    @GetMapping("/selected")  
     public ResponseEntity<?> getSelectedRepos(Authentication authentication) {  
         try {  
             User user = (User) authentication.getPrincipal();  
@@ -65,7 +62,7 @@ public class RepoController {
         }  
     }  
   
-    @DeleteMapping("/repository/{repoId}")  // ✅ Plus besoin de user/{userId}  
+    @DeleteMapping("/repository/{repoId}")  
     public ResponseEntity<?> deselectRepository(Authentication authentication, @PathVariable Long repoId) {  
         try {  
             User user = (User) authentication.getPrincipal();  

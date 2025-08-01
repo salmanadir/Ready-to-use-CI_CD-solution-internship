@@ -43,33 +43,12 @@ public class RepoSelectionService {
         repo.setFullName((String) repoData.get("full_name"));  
         repo.setUrl((String) repoData.get("html_url"));  
         repo.setDefaultBranch((String) repoData.get("default_branch"));  
-        repo.setTechnicalDetails(repoData.toString());  
   
         return repoRepository.save(repo);  
     }  
   
     public List<Repo> getUserSelectedRepos(Long userId) {  
         return repoRepository.findByUserId(userId);  
-    }  
-  
-    // ✅ CORRIGÉ : Utiliser Long au lieu de String pour githubId  
-    public User createOrUpdateUser(String token) {  
-        Map<String, Object> userInfo = gitHubService.getUserInfo(token);  
-        Long githubId = ((Number) userInfo.get("id")).longValue(); // ✅ Conversion correcte  
-        String username = (String) userInfo.get("login");  
-        String email = (String) userInfo.get("email");  
-  
-        User user = userRepository.findByGithubId(githubId) // ✅ Long githubId  
-                .orElse(new User());  
-  
-        user.setGithubId(githubId); // ✅ Long githubId  
-        user.setUsername(username);  
-        user.setToken(token);  
-        if (email != null) {  
-            user.setEmail(email);  
-        }  
-  
-        return userRepository.save(user);  
     }  
   
     public void deselectRepository(Long userId, Long repoId) {  

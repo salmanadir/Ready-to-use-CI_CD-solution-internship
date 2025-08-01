@@ -1,14 +1,14 @@
 package com.example.demo.service;  
   
-import java.util.Base64;  
-import java.util.List;  
-import java.util.Map;  
-  
-import org.springframework.http.HttpEntity;  
-import org.springframework.http.HttpHeaders;  
-import org.springframework.http.HttpMethod;  
-import org.springframework.http.ResponseEntity;  
-import org.springframework.stereotype.Service;  
+import java.util.Base64;
+import java.util.List;
+import java.util.Map;
+
+import org.springframework.http.HttpEntity;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpMethod;
+import org.springframework.http.ResponseEntity;
+import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClientException;  
 import org.springframework.web.client.RestTemplate;  
   
@@ -60,13 +60,12 @@ public class GitHubService {
         }  
     }  
   
-    // Méthodes pour la détection de stack  
     public List<Map<String, Object>> getRepositoryContents(String repoUrl, String token, String path) {  
         String apiUrl = repoUrl.replace("https://github.com", GITHUB_API_URL + "/repos") + "/contents/" + (path != null ? path : "");  
-          
+  
         HttpHeaders headers = createHeaders(token);  
         HttpEntity<String> entity = new HttpEntity<>(headers);  
-          
+  
         try {  
             ResponseEntity<List> response = restTemplate.exchange(apiUrl, HttpMethod.GET, entity, List.class);  
             return response.getBody();  
@@ -77,14 +76,14 @@ public class GitHubService {
   
     public String getFileContent(String repoUrl, String token, String filePath) {  
         String apiUrl = repoUrl.replace("https://github.com", GITHUB_API_URL + "/repos") + "/contents/" + filePath;  
-          
+  
         HttpHeaders headers = createHeaders(token);  
         HttpEntity<String> entity = new HttpEntity<>(headers);  
-          
+  
         try {  
             ResponseEntity<Map> response = restTemplate.exchange(apiUrl, HttpMethod.GET, entity, Map.class);  
             Map<String, Object> fileData = response.getBody();  
-              
+  
             String encodedContent = (String) fileData.get("content");  
             return new String(Base64.getDecoder().decode(encodedContent.replaceAll("\\s", "")));  
         } catch (RestClientException e) {  

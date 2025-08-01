@@ -4,8 +4,6 @@ package com.example.demo.model;
 import java.util.ArrayList;
 import java.util.List;
 
-
-  
 import com.fasterxml.jackson.annotation.JsonIgnore;
 
 import jakarta.persistence.CascadeType;
@@ -39,7 +37,11 @@ public class User {
     @Column(name= "email", length = 255)
     private String email;
 
+<<<<<<< HEAD
     @Column(name="avatar_url", length = 500)  // ✅ Added avatar URL
+=======
+    @Column(name="avatar_url", length = 500)  
+>>>>>>> a98e58b (feat: integrate JWT authentication with stack detection)
     private String avatarUrl;
   
     @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY, orphanRemoval = true)  
