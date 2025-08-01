@@ -31,9 +31,10 @@ public class SecurityConfig {
     public SecurityFilterChain filterChain(HttpSecurity http) throws Exception {
         http
             .authorizeHttpRequests(authz -> authz
-                .requestMatchers("/api/auth/**").permitAll()
                 .requestMatchers("/api/auth/delete-account").authenticated() // Requires auth
-                   .anyRequest().authenticated()                 // All other endpoints require auth
+                .requestMatchers("/api/auth/**").permitAll()
+                .anyRequest().authenticated()                    // All other endpoints require auth
+
             )
             .sessionManagement(session -> session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
             .csrf(csrf -> csrf.disable())
