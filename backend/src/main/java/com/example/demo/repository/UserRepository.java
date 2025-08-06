@@ -1,4 +1,3 @@
-
 package com.example.demo.repository;
 
 import  com.example.demo.model.User;
@@ -11,18 +10,17 @@ import java.util.Optional;
 @Repository
 public interface UserRepository extends JpaRepository<User, Long> {
 
-    // Recherche par GitHub ID
-    Optional<User> findByGithubId(String githubId);
-
     // Recherche par username
     Optional<User> findByUsername(String username);
 
     @Query("SELECT u FROM User u WHERE u.userId = :userId") // JPQL explicite
     Optional<User> findUserById(@Param("userId") Long userId);
-
-    // Recherche par email
-    Optional<User> findByEmail(String email);
-
-
+  
+    Optional<User> findByGithubId(Long githubId);  
+    
+    Optional<User> findByEmail(String email);  
+  
+    boolean existsByGithubId(Long githubId);  
+    boolean existsByUsername(String username);  
 
 }

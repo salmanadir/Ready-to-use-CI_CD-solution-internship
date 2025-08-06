@@ -1,11 +1,11 @@
 package com.example.demo.dto;
 
-import com.example.demo.model.TechStackInfo;
+
 
 public class WorkflowGenerationRequest {
     
     private Long repoId;
-    private TechStackInfo techStackInfo;
+    private StackAnalysis techStackInfo;
     
     
     
@@ -20,7 +20,7 @@ public class WorkflowGenerationRequest {
     
     public WorkflowGenerationRequest() {}
     
-    public WorkflowGenerationRequest(Long repoId, TechStackInfo techStackInfo) {
+    public WorkflowGenerationRequest(Long repoId, StackAnalysis techStackInfo) {
         this.repoId = repoId;
         this.techStackInfo = techStackInfo;
         this.fileHandlingStrategy = FileHandlingStrategy.UPDATE_IF_EXISTS; // Défaut
@@ -35,11 +35,11 @@ public class WorkflowGenerationRequest {
         this.repoId = repoId;
     }
     
-    public TechStackInfo getTechStackInfo() {
+    public StackAnalysis getTechStackInfo() {
         return techStackInfo;
     }
     
-    public void setTechStackInfo(TechStackInfo techStackInfo) {
+    public void setTechStackInfo(StackAnalysis techStackInfo) {
         this.techStackInfo = techStackInfo;
     }
  
