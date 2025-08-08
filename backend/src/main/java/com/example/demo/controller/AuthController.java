@@ -48,8 +48,8 @@ public class AuthController {
         String githubAuthUrl = "https://github.com/login/oauth/authorize" +
                 "?client_id=" + clientId +
                 "&redirect_uri=" + redirectUri +
-                "&scope=repo user:email";
-        
+                "&scope=repo workflow user:email";
+
         return ResponseEntity.status(302)
                 .header("Location", githubAuthUrl)
                 .build();
