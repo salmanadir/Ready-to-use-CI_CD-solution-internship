@@ -13,7 +13,7 @@ public class Repo {
     @Column(name="repo_id")  
     private Long repoId;  
       
-    @ManyToOne(fetch = FetchType.LAZY)  
+    @ManyToOne(fetch = FetchType.EAGER)  
     @JoinColumn(name = "user_id", nullable = false)  
     @JsonIgnore   
     private User user;  
