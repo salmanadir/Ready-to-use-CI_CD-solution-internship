@@ -96,6 +96,7 @@ public class GitHubService {
         
         System.out.println("✅ Chemin validé: " + filePath);
     }
+
     private void validateTokenPermissions(String token, String repoFullName) throws IOException {
         System.out.println("🔐 === VALIDATION TOKEN PERMISSIONS ===");
         
@@ -310,10 +311,10 @@ public class GitHubService {
 
             case CREATE_NEW_ALWAYS:
                 if (fileExists(repository, branch, filePath)) {
-                    String uniqueFilePath = generateUniqueFileNameSafe(filePath);
+                    String uniqueFilePath = generateUniqueFilePathWithIncrement(repository, branch, filePath);
                     System.out.println("[CREATE_NEW_ALWAYS] Fichier existe → nouveau nom: " + uniqueFilePath);
                     return createFile(repository, branch, uniqueFilePath, content,
-                            "New workflow created with unique name");
+                            "New workflow created with incremental name");
                 } else {
                     return createFile(repository, branch, filePath, content);
                 }
@@ -327,6 +328,52 @@ public class GitHubService {
             default:
                 throw new IllegalArgumentException("Unknown file handling strategy: " + strategy);
         }
+    }
+
+    // 🆕 GÉNÉRATION D'UN NOM UNIQUE AVEC INCRÉMENTATION NUMÉRIQUE
+    private String generateUniqueFilePathWithIncrement(GHRepository repository, String branch, String originalFilePath) throws IOException {
+        System.out.println("🔢 === GÉNÉRATION NOM AVEC INCRÉMENTATION ===");
+        System.out.println("Fichier original: " + originalFilePath);
+        
+        // Extraire le nom de base et l'extension
+        int lastDotIndex = originalFilePath.lastIndexOf('.');
+        String baseName;
+        String extension;
+        
+        if (lastDotIndex == -1) {
+            baseName = originalFilePath;
+            extension = "";
+        } else {
+            baseName = originalFilePath.substring(0, lastDotIndex);
+            extension = originalFilePath.substring(lastDotIndex);
+        }
+        
+        System.out.println("Nom de base: " + baseName);
+        System.out.println("Extension: " + extension);
+        
+        // Rechercher le prochain numéro disponible
+        int counter = 1;
+        String newFilePath;
+        
+        while (true) {
+            newFilePath = baseName + "-" + counter + extension;
+            System.out.println("🔍 Test existence: " + newFilePath);
+            
+            if (!fileExists(repository, branch, newFilePath)) {
+                System.out.println("✅ Nom unique trouvé: " + newFilePath + " (compteur: " + counter + ")");
+                break;
+            }
+            
+            System.out.println("❌ " + newFilePath + " existe déjà, incrémentation...");
+            counter++;
+            
+            // Protection contre les boucles infinies
+            if (counter > 1000) {
+                throw new IOException("Unable to generate unique filename after 1000 attempts for: " + originalFilePath);
+            }
+        }
+        
+        return newFilePath;
     }
 
     private boolean directoryExistsRobust(GHRepository repository, String branch, String dirPath) {
@@ -481,6 +528,8 @@ public class GitHubService {
         );
     }
 
+    // 🗑️ MÉTHODE DÉPRÉCIÉE - Remplacée par generateUniqueFilePathWithIncrement
+    @Deprecated
     private String generateUniqueFileNameSafe(String originalFilePath) {
         int lastDotIndex = originalFilePath.lastIndexOf('.');
         if (lastDotIndex == -1) {
