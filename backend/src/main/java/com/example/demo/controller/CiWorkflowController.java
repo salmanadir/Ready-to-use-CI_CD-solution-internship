@@ -13,8 +13,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
-// import optionnel si tu veux vérifier l'existence du template
-// import org.springframework.core.io.ClassPathResource;
+
 
 import java.io.IOException;
 import java.util.HashMap;
@@ -117,10 +116,7 @@ public class CiWorkflowController {
                 replacements.put("nodeVersion", resolveNodeVersionForActions(nodeVersion));
             }
 
-            // (facultatif) vérifier que le template existe
-            // if (!new ClassPathResource(templatePath).exists()) {
-            //     return ResponseEntity.internalServerError().body(Map.of("success", false, "message", "Template not found: " + templatePath));
-            // }
+          
 
             String content = templateRenderer.renderTemplate(templatePath, replacements);
             System.out.println("Template path: " + templatePath + " | Taille contenu: " + content.length());
