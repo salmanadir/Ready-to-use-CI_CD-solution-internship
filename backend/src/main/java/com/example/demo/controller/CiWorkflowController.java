@@ -13,15 +13,19 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
+// import optionnel si tu veux vérifier l'existence du template
+// import org.springframework.core.io.ClassPathResource;
 
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @RestController
 @RequestMapping("/api/workflows")
-@CrossOrigin(origins = "*") 
+@CrossOrigin(origins = "*")
 public class CiWorkflowController {
 
     @Autowired
@@ -40,107 +44,148 @@ public class CiWorkflowController {
     private RepoRepository repoRepository;
 
     @PostMapping("/generate")
-@Transactional
-public ResponseEntity<?> generateAndPushWorkflow(@RequestBody WorkflowGenerationRequest request,
-                                                 Authentication authentication) {
-    try {
-        System.out.println("=== DÉBUT GÉNÉRATION WORKFLOW ===");
-
-        // 1. Authentification
-        if (authentication == null || !authentication.isAuthenticated()) {
-            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Authentication required"));
-        }
-
-        // 2. Validation request
-        if (request == null) {
-            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Request is null"));
-        }
-        if (request.getRepoId() == null) {
-            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Repo ID is null in request"));
-        }
-
-        // 3. Récupération repo
-        Optional<Repo> repoOpt = repoRepository.findById(request.getRepoId());
-        if (!repoOpt.isPresent()) {
-            return ResponseEntity.badRequest().body(Map.of("success", false,
-                    "message", "Repository not found with ID: " + request.getRepoId()));
-        }
-        Repo repo = repoOpt.get();
-        System.out.println("Repository trouvé: " + repo.getFullName() + " | Branche: " + repo.getDefaultBranch());
-
-        // 4. Vérification propriétaire
-        User authenticatedUser = (User) authentication.getPrincipal();
-        if (!repo.getUser().getId().equals(authenticatedUser.getId())) {
-            return ResponseEntity.badRequest().body(Map.of("success", false, "message",
-                    "You don't have permission to modify this repository"));
-        }
-
-        // 5. Vérification token
-        String token = repo.getUser().getToken();
-        if (token == null || token.isEmpty()) {
-            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "GitHub token not found for user"));
-        }
-
-        // 6. Stack info
-        StackAnalysis info = request.getTechStackInfo();
-        if (info == null) {
-            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "TechStackInfo is null in request"));
-        }
-        System.out.println("StackAnalysis: BuildTool=" + info.getBuildTool() + ", Java=" + info.getJavaVersion());
-
-        // 7. Génération du contenu
-        String templatePath = templateService.getTemplatePath(info);
-        String content = templateRenderer.renderTemplate(templatePath, Map.of(
-                "javaVersion", info.getJavaVersion(),
-                "workingDirectory", info.getWorkingDirectory()
-        ));
-        System.out.println("Template path: " + templatePath + " | Taille contenu: " + content.length());
-
-        // 8. Construction du nom exact du fichier
-        String buildTool = info.getBuildTool() != null ? info.getBuildTool().toLowerCase() : "ci";
-        String fileName = buildTool + "-ci.yml";
-        String filePath = ".github/workflows/" + fileName;
-        System.out.println("Nom final du fichier: " + filePath);
-
-        // 9. Test connexion GitHub
+    @Transactional
+    public ResponseEntity<?> generateAndPushWorkflow(@RequestBody WorkflowGenerationRequest request,
+                                                     Authentication authentication) {
         try {
-            Map<String, Object> userInfo = gitHubService.getUserInfo(token);
-            System.out.println("Connexion GitHub OK - User: " + userInfo.get("login"));
+            System.out.println("=== DÉBUT GÉNÉRATION WORKFLOW ===");
+
+            // 1) Auth
+            if (authentication == null || !authentication.isAuthenticated()) {
+                return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Authentication required"));
+            }
+
+            // 2) Validation request
+            if (request == null) {
+                return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Request is null"));
+            }
+            if (request.getRepoId() == null) {
+                return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Repo ID is null in request"));
+            }
+
+            // 3) Repo
+            Optional<Repo> repoOpt = repoRepository.findById(request.getRepoId());
+            if (repoOpt.isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of("success", false,
+                        "message", "Repository not found with ID: " + request.getRepoId()));
+            }
+            Repo repo = repoOpt.get();
+            System.out.println("Repository trouvé: " + repo.getFullName() + " | Branche: " + repo.getDefaultBranch());
+
+            // 4) Propriétaire
+            User authenticatedUser = (User) authentication.getPrincipal();
+            if (!repo.getUser().getId().equals(authenticatedUser.getId())) {
+                return ResponseEntity.badRequest().body(Map.of("success", false, "message",
+                        "You don't have permission to modify this repository"));
+            }
+
+            // 5) Token
+            String token = repo.getUser().getToken();
+            if (token == null || token.isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of("success", false, "message", "GitHub token not found for user"));
+            }
+
+            // 6) Stack info
+            StackAnalysis info = request.getTechStackInfo();
+            if (info == null) {
+                return ResponseEntity.badRequest().body(Map.of("success", false, "message", "TechStackInfo is null in request"));
+            }
+            System.out.println("StackAnalysis: BuildTool=" + info.getBuildTool() + ", Java=" + info.getJavaVersion() + ", Node=" + info.getNodeVersion());
+
+            // 7) Génération du contenu
+            String templatePath = templateService.getTemplatePath(info);
+
+            Map<String, String> replacements = new HashMap<>();
+            String workingDir = (info.getWorkingDirectory() == null || info.getWorkingDirectory().isBlank())
+                    ? "."
+                    : info.getWorkingDirectory();
+            replacements.put("workingDirectory", workingDir);
+
+            String buildToolLower = (info.getBuildTool() == null) ? "" : info.getBuildTool().toLowerCase();
+
+            if ("maven".equals(buildToolLower) || "gradle".equals(buildToolLower)) {
+                replacements.put("javaVersion", (info.getJavaVersion() != null && !info.getJavaVersion().isBlank())
+                        ? info.getJavaVersion()
+                        : "17");
+            } else if ("npm".equals(buildToolLower)) {
+                // nodeVersion prioritaire depuis StackAnalysis, sinon fallback projectDetails.nodeVersion
+                String nodeVersion = info.getNodeVersion();
+                if (nodeVersion == null && info.getProjectDetails() != null) {
+                    Object v = info.getProjectDetails().get("nodeVersion");
+                    nodeVersion = (v != null) ? v.toString() : null;
+                }
+                replacements.put("nodeVersion", resolveNodeVersionForActions(nodeVersion));
+            }
+
+            // (facultatif) vérifier que le template existe
+            // if (!new ClassPathResource(templatePath).exists()) {
+            //     return ResponseEntity.internalServerError().body(Map.of("success", false, "message", "Template not found: " + templatePath));
+            // }
+
+            String content = templateRenderer.renderTemplate(templatePath, replacements);
+            System.out.println("Template path: " + templatePath + " | Taille contenu: " + content.length());
+
+            // 8) Nom du fichier
+            String fileName = switch (buildToolLower) {
+                case "maven" -> "maven-ci.yml";
+                case "gradle" -> "gradle-ci.yml";
+                case "npm"   -> "npm-ci.yml";
+                default -> "ci.yml";
+            };
+            String filePath = ".github/workflows/" + fileName;
+            System.out.println("Nom final du fichier: " + filePath);
+
+            // 9) Test connexion GitHub
+            try {
+                Map<String, Object> userInfo = gitHubService.getUserInfo(token);
+                System.out.println("Connexion GitHub OK - User: " + userInfo.get("login"));
+            } catch (Exception e) {
+                return ResponseEntity.badRequest().body(Map.of("success", false, "message", "GitHub connection failed: " + e.getMessage()));
+            }
+
+            // 10) Push
+            GitHubService.PushResult result = gitHubService.pushWorkflowToGitHub(
+                    token,
+                    repo.getFullName(),
+                    repo.getDefaultBranch(),
+                    filePath,
+                    content,
+                    GitHubService.FileHandlingStrategy.valueOf(request.getFileHandlingStrategy().name())
+            );
+
+            // 11) Sauvegarde DB
+            if (result.getCommitHash() != null) {
+                CiWorkflow workflow = workflowService.saveWorkflowAfterPush(repo, content, result.getCommitHash());
+                System.out.println("Workflow sauvegardé en base avec ID: " + workflow.getCiWorkflowId());
+            }
+
+            System.out.println("=== FIN GÉNÉRATION WORKFLOW ===");
+
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "message", result.getMessage(),
+                    "commitHash", result.getCommitHash(),
+                    "filePath", result.getFilePath()
+            ));
+
+        } catch (IOException e) {
+            return ResponseEntity.internalServerError().body(Map.of("success", false, "message", "IO Error: " + e.getMessage()));
         } catch (Exception e) {
-            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "GitHub connection failed: " + e.getMessage()));
+            return ResponseEntity.internalServerError().body(Map.of("success", false, "message", "Unexpected error: " + e.getMessage()));
         }
-
-        // 10. Push workflow
-        GitHubService.PushResult result = gitHubService.pushWorkflowToGitHub(
-                token,
-                repo.getFullName(),
-                repo.getDefaultBranch(),
-                filePath,
-                content,
-                GitHubService.FileHandlingStrategy.valueOf(request.getFileHandlingStrategy().name())
-        );
-
-        // 11. Sauvegarde si succès
-        if (result.getCommitHash() != null) {
-            CiWorkflow workflow = workflowService.saveWorkflowAfterPush(repo, content, result.getCommitHash());
-            System.out.println("Workflow sauvegardé en base avec ID: " + workflow.getCiWorkflowId());
-        }
-
-        System.out.println("=== FIN GÉNÉRATION WORKFLOW ===");
-
-        return ResponseEntity.ok(Map.of(
-                "success", true,
-                "message", result.getMessage(),
-                "commitHash", result.getCommitHash(),
-                "filePath", result.getFilePath()
-        ));
-
-    } catch (IOException e) {
-        return ResponseEntity.internalServerError().body(Map.of("success", false, "message", "IO Error: " + e.getMessage()));
-    } catch (Exception e) {
-        return ResponseEntity.internalServerError().body(Map.of("success", false, "message", "Unexpected error: " + e.getMessage()));
     }
 
+    /** Mappe "Latest"/"current" vers lts/* et simplifie les ranges (>=18, ^20, ~16, 20.x, v20…) vers un major. */
+    private String resolveNodeVersionForActions(String raw) {
+        if (raw == null || raw.isBlank()) return "lts/*";
+        String v = raw.trim();
+        if (v.equalsIgnoreCase("latest") || v.equalsIgnoreCase("current")) return "lts/*";
 
+        // Essayer d'extraire un major (20, 18, etc.)
+        Matcher m = Pattern.compile("(\\d+)(?:\\.\\d+)?").matcher(v.replace("v", ""));
+        if (m.find()) return m.group(1);
+
+        // fallback safe
+        return "lts/*";
     }
 }

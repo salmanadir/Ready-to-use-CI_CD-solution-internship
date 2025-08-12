@@ -39,8 +39,41 @@ public class StackDetectionService {
         Map<String, Object> projectDetails = analyzeProjectDetails(repoUrl, token, detectedStack.stackType, detectedStack.workingDirectory);
         analysis.setProjectDetails(projectDetails);
 
+        // ⬇️ Ajouter ceci pour Node.js
+        if ("NODE_JS".equals(detectedStack.stackType)) {
+            String raw = projectDetails != null ? (String) projectDetails.get("nodeVersion") : null;
+        
+            // Fallback: lire .nvmrc / .node-version si "Latest" ou null
+            String resolved = raw;
+            if (resolved == null || "Latest".equalsIgnoreCase(resolved)) {
+                String fromFiles = tryReadNodeVersionFiles(repoUrl, token, detectedStack.workingDirectory);
+                resolved = (fromFiles != null && !fromFiles.isBlank()) ? fromFiles : "20";
+            }
+        
+            analysis.setNodeVersion(normalizeNodeVersion(resolved)); // ex: "v20", "20.x", ">=18" -> "20" ou "18"
+            // ✅ On NE modifie PAS projectDetails : il reste avec "Latest"
+        }
+        
         return analysis;
     }
+
+    private String tryReadNodeVersionFiles(String repoUrl, String token, String wd) {
+        String base = ".".equals(wd) ? "" : wd.replaceFirst("^\\./", "") + "/";
+        for (String f : List.of(".nvmrc", ".node-version")) {
+            try {
+                String v = gitHubService.getFileContent(repoUrl, token, base + f);
+                if (v != null && !v.trim().isEmpty()) return v.trim().replaceFirst("^v", "");
+            } catch (Exception ignore) { }
+        }
+        return null;
+    }
+    
+    private String normalizeNodeVersion(String raw) {
+        if (raw == null || raw.isBlank()) return "20";
+        var m = java.util.regex.Pattern.compile("(\\d+)(?:\\.\\d+)?").matcher(raw.replace("v",""));
+        return m.find() ? m.group(1) : "20";
+    }
+    
 
     
     private static class DetectedStack {
