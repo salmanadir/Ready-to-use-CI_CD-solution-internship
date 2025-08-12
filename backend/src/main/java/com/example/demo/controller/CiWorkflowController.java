@@ -115,7 +115,7 @@ public class CiWorkflowController {
                 replacements.put("nodeVersion", resolveNodeVersionForActions(nodeVersion));
             }
 
-            
+
 
             String content = templateRenderer.renderTemplate(templatePath, replacements);
             System.out.println("Template path: " + templatePath + " | Taille contenu: " + content.length());
