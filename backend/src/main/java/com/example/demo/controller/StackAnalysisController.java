@@ -91,7 +91,26 @@ public class StackAnalysisController {
             return ResponseEntity.badRequest().body(errorResponse);
         }
     }
-
+    @PostMapping("/generate-services/{repoId}")  
+        public ResponseEntity<Map<String, Object>> generateServices(@PathVariable Long repoId) {  
+        try {  
+            Repo repo = repoRepository.findById(repoId)  
+                .orElseThrow(() -> new RuntimeException("Repository not found"));  
+  
+            Map<String, Object> services = stackDetectionService.generateStructuredServices(  
+                repo.getUrl(),  
+                repo.getUser().getToken(),  
+                repo.getDefaultBranch()  
+        );  
+  
+        return ResponseEntity.ok(services);  
+        } catch (Exception e) {  
+            Map<String, Object> errorResponse = new HashMap<>();  
+            errorResponse.put("success", false);  
+            errorResponse.put("message", "Error generating services: " + e.getMessage());  
+        return ResponseEntity.badRequest().body(errorResponse);  
+    }  
+}
     @PutMapping("/repository/{repoId}/update-parameters")
     public ResponseEntity<Map<String, Object>> updateStackParameters(
             @PathVariable Long repoId,
