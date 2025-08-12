@@ -12,8 +12,7 @@ public class StackAnalysis {
     private String buildTool;  
     private List<Map<String, Object>> files;  
     private Map<String, Object> projectDetails;  
-    // + get/set nodeVersion
-private String nodeVersion; 
+
 
 
     public StackAnalysis() {}  
@@ -51,6 +50,5 @@ private String nodeVersion;
     public Map<String, Object> getProjectDetails() { return projectDetails; }  
     public void setProjectDetails(Map<String, Object> projectDetails) { this.projectDetails = projectDetails; } 
     
-    public String getNodeVersion() { return nodeVersion; }  
-    public void setNodeVersion(String nodeVersion) { this.nodeVersion = nodeVersion; }   
+      
 }

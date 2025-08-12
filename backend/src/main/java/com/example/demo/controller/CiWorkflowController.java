@@ -13,8 +13,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
-// import optionnel si tu veux vérifier l'existence du template
-// import org.springframework.core.io.ClassPathResource;
+
 
 import java.io.IOException;
 import java.util.HashMap;
@@ -90,7 +89,7 @@ public class CiWorkflowController {
             if (info == null) {
                 return ResponseEntity.badRequest().body(Map.of("success", false, "message", "TechStackInfo is null in request"));
             }
-            System.out.println("StackAnalysis: BuildTool=" + info.getBuildTool() + ", Java=" + info.getJavaVersion() + ", Node=" + info.getNodeVersion());
+            System.out.println("StackAnalysis: BuildTool=" + info.getBuildTool() + ", Java=" + info.getJavaVersion() );
 
             // 7) Génération du contenu
             String templatePath = templateService.getTemplatePath(info);
@@ -108,19 +107,15 @@ public class CiWorkflowController {
                         ? info.getJavaVersion()
                         : "17");
             } else if ("npm".equals(buildToolLower)) {
-                // nodeVersion prioritaire depuis StackAnalysis, sinon fallback projectDetails.nodeVersion
-                String nodeVersion = info.getNodeVersion();
-                if (nodeVersion == null && info.getProjectDetails() != null) {
-                    Object v = info.getProjectDetails().get("nodeVersion");
-                    nodeVersion = (v != null) ? v.toString() : null;
-                }
+                    String nodeVersion = null;
+    if (info.getProjectDetails() != null) {
+       Object v = info.getProjectDetails().get("nodeVersion");
+        nodeVersion = (v != null) ? v.toString() : null;
+    }
                 replacements.put("nodeVersion", resolveNodeVersionForActions(nodeVersion));
             }
 
-            // (facultatif) vérifier que le template existe
-            // if (!new ClassPathResource(templatePath).exists()) {
-            //     return ResponseEntity.internalServerError().body(Map.of("success", false, "message", "Template not found: " + templatePath));
-            // }
+            
 
             String content = templateRenderer.renderTemplate(templatePath, replacements);
             System.out.println("Template path: " + templatePath + " | Taille contenu: " + content.length());
@@ -175,17 +170,27 @@ public class CiWorkflowController {
         }
     }
 
-    /** Mappe "Latest"/"current" vers lts/* et simplifie les ranges (>=18, ^20, ~16, 20.x, v20…) vers un major. */
     private String resolveNodeVersionForActions(String raw) {
         if (raw == null || raw.isBlank()) return "lts/*";
         String v = raw.trim();
+    
+        // latest/current -> lts/*
         if (v.equalsIgnoreCase("latest") || v.equalsIgnoreCase("current")) return "lts/*";
-
-        // Essayer d'extraire un major (20, 18, etc.)
-        Matcher m = Pattern.compile("(\\d+)(?:\\.\\d+)?").matcher(v.replace("v", ""));
+    
+        // version exacte: 20 | v20 | 20.10 | 20.10.1  -> garder telle quelle (sans 'v')
+        if (v.matches("^[vV]?\\d+(?:\\.\\d+){0,2}$")) {
+            return v.replaceFirst("^[vV]", "");
+        }
+    
+        // forme 20.x -> 20
+        java.util.regex.Matcher mx = java.util.regex.Pattern.compile("^(\\d+)\\.x$").matcher(v);
+        if (mx.find()) return mx.group(1);
+    
+        // plages ou préfixes (^, ~, >=, <=, >, <) -> extraire le major
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("^(?:\\^|~|>=|<=|>|<)?\\s*(\\d+)").matcher(v.replace("v",""));
         if (m.find()) return m.group(1);
-
-        // fallback safe
+    
+        // fallback sûr
         return "lts/*";
     }
 }

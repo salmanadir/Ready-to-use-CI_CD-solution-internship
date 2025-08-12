@@ -46,14 +46,6 @@ public class StackAnalysisController {
                     repo.getDefaultBranch()
             );
 
-            // 🔽 FLATTEN: sortir nodeVersion de projectDetails vers le top-level, et l'enlever de projectDetails
-            if ("NODE_JS".equals(analysis.getStackType()) && analysis.getProjectDetails() != null) {
-                Object raw = analysis.getProjectDetails().remove("nodeVersion"); // on la retire du projectDetails
-                if (raw != null) {
-                    analysis.setNodeVersion(raw.toString()); // on la met au top-level telle quelle (ex: "Latest")
-                }
-            }
-
             String analysisJson = objectMapper.writeValueAsString(analysis);
             repo.setTechnicalDetails(analysisJson);
             repoRepository.save(repo);
@@ -87,16 +79,6 @@ public class StackAnalysisController {
 
             StackAnalysis analysis = objectMapper.readValue(repo.getTechnicalDetails(), StackAnalysis.class);
 
-            // 🔽 FLATTEN à l'affichage aussi (au cas où des anciennes données existent encore en base)
-            if ("NODE_JS".equals(analysis.getStackType()) && analysis.getProjectDetails() != null) {
-                if (analysis.getNodeVersion() == null || analysis.getNodeVersion().isBlank()) {
-                    Object raw = analysis.getProjectDetails().get("nodeVersion");
-                    if (raw != null) {
-                        analysis.setNodeVersion(raw.toString());
-                    }
-                }
-                // on n'écrit pas en base ici (GET), on ne fait que l'affichage
-            }
 
             Map<String, Object> response = new HashMap<>();
             response.put("success", true);
@@ -140,10 +122,14 @@ public class StackAnalysisController {
             if (updatedParameters.containsKey("orchestrator")) {
                 currentAnalysis.setOrchestrator((String) updatedParameters.get("orchestrator"));
             }
-            // Optionnel: permettre de mettre à jour la nodeVersion top-level
+            
             if (updatedParameters.containsKey("nodeVersion")) {
-                currentAnalysis.setNodeVersion((String) updatedParameters.get("nodeVersion"));
-                // ne pas toucher projectDetails
+                Map<String, Object> pd = currentAnalysis.getProjectDetails();
+                if (pd == null) {
+                    pd = new HashMap<>();
+                    currentAnalysis.setProjectDetails(pd);
+                }
+                pd.put("nodeVersion", (String) updatedParameters.get("nodeVersion"));
             }
 
             String updatedJson = objectMapper.writeValueAsString(currentAnalysis);

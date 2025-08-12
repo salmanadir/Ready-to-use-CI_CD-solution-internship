@@ -39,20 +39,17 @@ public class StackDetectionService {
         Map<String, Object> projectDetails = analyzeProjectDetails(repoUrl, token, detectedStack.stackType, detectedStack.workingDirectory);
         analysis.setProjectDetails(projectDetails);
 
-        // ⬇️ Ajouter ceci pour Node.js
         if ("NODE_JS".equals(detectedStack.stackType)) {
-            String raw = projectDetails != null ? (String) projectDetails.get("nodeVersion") : null;
-        
-            // Fallback: lire .nvmrc / .node-version si "Latest" ou null
-            String resolved = raw;
-            if (resolved == null || "Latest".equalsIgnoreCase(resolved)) {
-                String fromFiles = tryReadNodeVersionFiles(repoUrl, token, detectedStack.workingDirectory);
-                resolved = (fromFiles != null && !fromFiles.isBlank()) ? fromFiles : "20";
-            }
-        
-            analysis.setNodeVersion(normalizeNodeVersion(resolved)); // ex: "v20", "20.x", ">=18" -> "20" ou "18"
-            // ✅ On NE modifie PAS projectDetails : il reste avec "Latest"
-        }
+                       String raw = projectDetails != null ? (String) projectDetails.get("nodeVersion") : null;
+                       if (raw == null || "Latest".equalsIgnoreCase(raw)) {
+                            String fromFiles = tryReadNodeVersionFiles(repoUrl, token, detectedStack.workingDirectory);
+                           if (fromFiles != null && !fromFiles.isBlank()) {
+                               // on garde la version dans projectDetails
+                               projectDetails.put("nodeVersion", fromFiles);
+                            }
+                       }
+                       
+                    }
         
         return analysis;
     }
