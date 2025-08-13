@@ -79,6 +79,7 @@ public class StackAnalysisController {
 
             StackAnalysis analysis = objectMapper.readValue(repo.getTechnicalDetails(), StackAnalysis.class);
 
+
             Map<String, Object> response = new HashMap<>();
             response.put("success", true);
             response.put("analysis", analysis);
@@ -139,6 +140,15 @@ public class StackAnalysisController {
             }
             if (updatedParameters.containsKey("orchestrator")) {
                 currentAnalysis.setOrchestrator((String) updatedParameters.get("orchestrator"));
+            }
+            
+            if (updatedParameters.containsKey("nodeVersion")) {
+                Map<String, Object> pd = currentAnalysis.getProjectDetails();
+                if (pd == null) {
+                    pd = new HashMap<>();
+                    currentAnalysis.setProjectDetails(pd);
+                }
+                pd.put("nodeVersion", (String) updatedParameters.get("nodeVersion"));
             }
 
             String updatedJson = objectMapper.writeValueAsString(currentAnalysis);

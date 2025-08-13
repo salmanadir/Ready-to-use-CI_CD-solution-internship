@@ -11,7 +11,7 @@ import com.example.demo.dto.StackAnalysis;
 public class WorkflowTemplateService {
     public String getTemplatePath(StackAnalysis info) {
         String buildTool = info.getBuildTool().toLowerCase();
-        if (!List.of("maven", "gradle", "node").contains(buildTool)) {
+        if (!List.of("maven", "gradle", "npm").contains(buildTool)) {
             throw new IllegalArgumentException("Unsupported build tool: " + buildTool);
         }
         return "templates/CI/" + buildTool + "_ci.yml";

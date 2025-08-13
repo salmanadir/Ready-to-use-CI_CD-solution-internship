@@ -1,0 +1,44 @@
+name: CI Pipeline for Node.js
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  NODE_VERSION: {{nodeVersion}}
+  WORKING_DIR: {{workingDirectory}}
+
+jobs:
+  ci:
+    name: Continuous Integration
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source code
+        uses: actions/checkout@v4
+
+      - name: Set up Node ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: ${{ env.WORKING_DIR }}/package-lock.json
+
+      - name: Install dependencies
+        run: |
+          if [ -f package-lock.json ]; then
+            npm ci
+          else
+            npm install
+          fi
+        working-directory: ${{ env.WORKING_DIR }}
+
+      - name: Run tests
+        run: npm test --if-present
+        working-directory: ${{ env.WORKING_DIR }}
+
+      - name: Build application
+        run: npm run build --if-present
+        working-directory: ${{ env.WORKING_DIR }}

@@ -33,7 +33,7 @@ public class StackAnalysis {
 
     public StackAnalysis() {}
 
-    // --- Getters/Setters ---
+  
     public String getStackType() { return stackType; }
     public void setStackType(String stackType) { this.stackType = stackType; }
 

@@ -43,11 +43,25 @@ public class StackDetectionService {
         Map<String, Object> projectDetails = analyzeProjectDetails(repoUrl, token, detectedStack.stackType, detectedStack.workingDirectory);
         analysis.setProjectDetails(projectDetails);
 
+
         // Infos Docker/DB
         String databaseType = detectDatabaseTypeFromStack(repoUrl, token, detectedStack.stackType, detectedStack.workingDirectory);
         String databaseName = extractDatabaseName(repoUrl, token, detectedStack.workingDirectory);
         analysis.setDatabaseType(databaseType);
         analysis.setDatabaseName(databaseName);
+
+        if ("NODE_JS".equals(detectedStack.stackType)) {
+            String raw = projectDetails != null ? (String) projectDetails.get("nodeVersion") : null;
+            if (raw == null || "Latest".equalsIgnoreCase(raw)) {
+                 String fromFiles = tryReadNodeVersionFiles(repoUrl, token, detectedStack.workingDirectory);
+                if (fromFiles != null && !fromFiles.isBlank()) {
+                    // on garde la version dans projectDetails
+                    projectDetails.put("nodeVersion", fromFiles);
+                 }
+            }
+            
+         }
+
 
         return analysis;
     }
@@ -646,7 +660,27 @@ public class StackDetectionService {
         );
     }
 
-  
+    
+
+    private String tryReadNodeVersionFiles(String repoUrl, String token, String wd) {
+        String base = ".".equals(wd) ? "" : wd.replaceFirst("^\\./", "") + "/";
+        for (String f : List.of(".nvmrc", ".node-version")) {
+            try {
+                String v = gitHubService.getFileContent(repoUrl, token, base + f);
+                if (v != null && !v.trim().isEmpty()) return v.trim().replaceFirst("^v", "");
+            } catch (Exception ignore) { }
+        }
+        return null;
+    }
+    
+    private String normalizeNodeVersion(String raw) {
+        if (raw == null || raw.isBlank()) return "20";
+        var m = java.util.regex.Pattern.compile("(\\d+)(?:\\.\\d+)?").matcher(raw.replace("v",""));
+        return m.find() ? m.group(1) : "20";
+    }
+    
+
+    
 
     private static class DetectedStack {
         String stackType;
