@@ -1,0 +1,69 @@
+name: CI (Node.js) + Docker
+
+on:
+  push: { branches: [ "main" ] }
+  pull_request: { branches: [ "main" ] }
+
+env:
+  NODE_VERSION: {{nodeVersion}}
+  WORKING_DIR: {{workingDirectory}}
+  REGISTRY: {{registry}}
+  IMAGE_NAME: {{imageName}}
+  DOCKERFILE: {{dockerfilePath}}
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+
+      - name: Install deps
+        run: npm ci
+        working-directory: ${{ env.WORKING_DIR }}
+
+      - name: Tests
+        run: npm test --if-present
+        working-directory: ${{ env.WORKING_DIR }}
+
+      - name: Build
+        run: npm run build --if-present
+        working-directory: ${{ env.WORKING_DIR }}
+
+      # --- Docker ---
+      - name: Ensure Docker context 'default'
+        run: docker context use default || true
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha
+            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+
+      - name: Build image & (conditionally) push
+        uses: docker/build-push-action@v6
+        with:
+          context: {{dockerContext}}
+          file: ${{ env.DOCKERFILE }}
+          push: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

@@ -1,25 +1,29 @@
 package com.example.demo.controller;
 
+import com.example.demo.ci.template.TemplateRenderer;
+import com.example.demo.service.ContainerizationService;
+import com.example.demo.service.ContainerizationWriter;
+import com.example.demo.dto.ContainerPlan;
+import com.example.demo.dto.ComposePlan;
+import com.example.demo.dto.StackAnalysis;
+import com.example.demo.dto.WorkflowGenerationRequest;
 import com.example.demo.model.CiWorkflow;
 import com.example.demo.model.Repo;
 import com.example.demo.model.User;
 import com.example.demo.repository.RepoRepository;
-import com.example.demo.service.*;
-import com.example.demo.ci.template.TemplateRenderer;
-import com.example.demo.dto.StackAnalysis;
-import com.example.demo.dto.WorkflowGenerationRequest;
+import com.example.demo.service.CiWorkflowService;
+import com.example.demo.service.GitHubService;
+import com.example.demo.service.WorkflowTemplateService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
-
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
-
 
 @RestController
 @RequestMapping("/api/workflows")
@@ -40,6 +44,12 @@ public class CiWorkflowController {
 
     @Autowired
     private RepoRepository repoRepository;
+
+    @Autowired
+    private ContainerizationService containerizationService;
+
+    @Autowired
+    private ContainerizationWriter containerizationWriter;
 
     @PostMapping("/generate")
     @Transactional
@@ -82,17 +92,72 @@ public class CiWorkflowController {
             if (token == null || token.isEmpty()) {
                 return ResponseEntity.badRequest().body(Map.of("success", false, "message", "GitHub token not found for user"));
             }
+            gitHubService.setCurrentToken(token);
 
             // 6) Stack info
             StackAnalysis info = request.getTechStackInfo();
             if (info == null) {
                 return ResponseEntity.badRequest().body(Map.of("success", false, "message", "TechStackInfo is null in request"));
             }
-            System.out.println("StackAnalysis: BuildTool=" + info.getBuildTool() + ", Java=" + info.getJavaVersion() );
+            System.out.println("StackAnalysis: BuildTool=" + info.getBuildTool() + ", Java=" + info.getJavaVersion());
 
-            // 7) Génération du contenu
+            // 6.1) Options Docker -> FORCÉ à ON (build image impératif)
+            WorkflowGenerationRequest.DockerOptions docker = request.getDocker();
+            if (docker == null) docker = new WorkflowGenerationRequest.DockerOptions();
+            docker.setEnable(true);
+
+            // 6.2) Plan container (détection Dockerfile/compose + décision)
+            ContainerPlan containerPlan = containerizationService.plan(
+                    repo.getUrl(),
+                    token,
+                    (docker.getImageNameOverride() == null || docker.getImageNameOverride().isBlank())
+                            ? repo.getFullName() : docker.getImageNameOverride(),
+                    info,
+                    docker.getImageNameOverride(),
+                    docker.getRegistry()
+            );
+
+            // 6.3) Si pas de Dockerfile -> on le crée AVANT le workflow
+            if (containerPlan.isShouldGenerateDockerfile()) {
+                containerizationWriter.ensureDockerfile(
+                        token,
+                        repo.getFullName(),
+                        repo.getDefaultBranch(),
+                        containerPlan,
+                        docker.getDockerfileStrategy() != null
+                                ? docker.getDockerfileStrategy()
+                                : GitHubService.FileHandlingStrategy.UPDATE_IF_EXISTS
+                );
+                System.out.println("Dockerfile créé/poussé: " + containerPlan.getDockerfilePath());
+            }
+
+            // 6.4) (Optionnel) compose de dev si demandé
+            if (docker.isGenerateCompose()) {
+                ComposePlan composePlan = containerizationService.planComposeForDev(info);
+                if (composePlan != null && composePlan.shouldGenerateCompose) {
+                    containerizationWriter.ensureCompose(
+                            token,
+                            repo.getFullName(),
+                            repo.getDefaultBranch(),
+                            composePlan,
+                            docker.getComposeStrategy() != null
+                                    ? docker.getComposeStrategy()
+                                    : GitHubService.FileHandlingStrategy.UPDATE_IF_EXISTS
+                    );
+                    System.out.println("docker-compose.dev.yml créé/poussé");
+                }
+            }
+
+            // 7) Choix du template CI (toujours "avec Docker")
+            // OPTION A: si ta WorkflowTemplateService a une seule méthode et renvoie déjà le template docker:
             String templatePath = templateService.getTemplatePath(info);
 
+            // OPTION B: si tu as encore la version "avec boolean", dé-commente:
+            // String templatePath = templateService.getTemplatePath(info, true);
+
+            System.out.println("Template choisi: " + templatePath);
+
+            // 7.1) Placeholders généraux
             Map<String, String> replacements = new HashMap<>();
             String workingDir = (info.getWorkingDirectory() == null || info.getWorkingDirectory().isBlank())
                     ? "."
@@ -106,24 +171,25 @@ public class CiWorkflowController {
                         ? info.getJavaVersion()
                         : "17");
             } else if ("npm".equals(buildToolLower)) {
-                    String nodeVersion = null;
-    if (info.getProjectDetails() != null) {
-       Object v = info.getProjectDetails().get("nodeVersion");
-        nodeVersion = (v != null) ? v.toString() : null;
-    }
+                String nodeVersion = null;
+                if (info.getProjectDetails() != null) {
+                    Object v = info.getProjectDetails().get("nodeVersion");
+                    nodeVersion = (v != null) ? v.toString() : null;
+                }
                 replacements.put("nodeVersion", resolveNodeVersionForActions(nodeVersion));
             }
 
-
+            // 7.2) Placeholders Docker (toujours présents) — utilise l’aide ContainerPlan.placeholders()
+            replacements.putAll(containerPlan.placeholders());
 
             String content = templateRenderer.renderTemplate(templatePath, replacements);
             System.out.println("Template path: " + templatePath + " | Taille contenu: " + content.length());
 
-            // 8) Nom du fichier
+            // 8) Nom du fichier workflow
             String fileName = switch (buildToolLower) {
                 case "maven" -> "maven-ci.yml";
                 case "gradle" -> "gradle-ci.yml";
-                case "npm"   -> "npm-ci.yml";
+                case "npm" -> "npm-ci.yml";
                 default -> "ci.yml";
             };
             String filePath = ".github/workflows/" + fileName;
@@ -137,7 +203,7 @@ public class CiWorkflowController {
                 return ResponseEntity.badRequest().body(Map.of("success", false, "message", "GitHub connection failed: " + e.getMessage()));
             }
 
-            // 10) Push
+            // 10) Push du workflow CI
             GitHubService.PushResult result = gitHubService.pushWorkflowToGitHub(
                     token,
                     repo.getFullName(),
@@ -172,24 +238,17 @@ public class CiWorkflowController {
     private String resolveNodeVersionForActions(String raw) {
         if (raw == null || raw.isBlank()) return "lts/*";
         String v = raw.trim();
-    
-        // latest/current -> lts/*
+
         if (v.equalsIgnoreCase("latest") || v.equalsIgnoreCase("current")) return "lts/*";
-    
-        // version exacte: 20 | v20 | 20.10 | 20.10.1  -> garder telle quelle (sans 'v')
         if (v.matches("^[vV]?\\d+(?:\\.\\d+){0,2}$")) {
             return v.replaceFirst("^[vV]", "");
         }
-    
-        // forme 20.x -> 20
         java.util.regex.Matcher mx = java.util.regex.Pattern.compile("^(\\d+)\\.x$").matcher(v);
         if (mx.find()) return mx.group(1);
-    
-        // plages ou préfixes (^, ~, >=, <=, >, <) -> extraire le major
+
         java.util.regex.Matcher m = java.util.regex.Pattern.compile("^(?:\\^|~|>=|<=|>|<)?\\s*(\\d+)").matcher(v.replace("v",""));
         if (m.find()) return m.group(1);
-    
-        // fallback sûr
+
         return "lts/*";
     }
 }
