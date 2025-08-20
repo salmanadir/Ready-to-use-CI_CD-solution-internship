@@ -38,6 +38,7 @@ public class GitHubService {
 
         // Validation des paramètres
         validateParameters(token, repoFullName, filePath, content);
+        validateFilePath(filePath);
 
         // 🔧 NOUVELLE VALIDATION COMPLÈTE DES PERMISSIONS
         validateTokenPermissions(token, repoFullName);

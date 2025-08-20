@@ -11,7 +11,12 @@ import java.util.List;
 public class ContainerizationService {
 
   private final GitHubService gitHub;
-  public ContainerizationService(GitHubService gitHub) { this.gitHub = gitHub; }
+  private final DockerfileGenerationService dockerfileGen;
+
+  public ContainerizationService(GitHubService gitHub, DockerfileGenerationService dockerfileGen) {
+    this.gitHub = gitHub;
+    this.dockerfileGen = dockerfileGen;
+  }
 
   /** Calcule le plan Docker (Dockerfile existant ? à générer ? où builder ?) */
   public ContainerPlan plan(String repoUrl, String token, String repoFullName,
@@ -19,11 +24,16 @@ public class ContainerizationService {
     ContainerPlan plan = new ContainerPlan();
 
     plan.setRegistry(isBlank(registry) ? "ghcr.io" : registry);
-    plan.setImageName(isBlank(imageNameOverride) ? repoFullName : imageNameOverride);
+
+    // GHCR préfère lowercase pour l'image
+    String img = isBlank(imageNameOverride) ? repoFullName : imageNameOverride;
+    plan.setImageName(img == null ? null : img.toLowerCase());
 
     String wd = normalizeWd(analysis.getWorkingDirectory());
     plan.setWorkingDirectory(wd);
-    plan.setDockerContext("."); // utilisé par docker/build-push-action (context)
+
+    // important : le build context doit pointer sur le WD
+    plan.setDockerContext(".");
 
     // 1) détecter Dockerfile/compose sous WD
     var files = gitHub.getRepositoryContents(repoUrl, token, ".".equals(wd) ? null : wd);
@@ -45,27 +55,47 @@ public class ContainerizationService {
         .toList();
     plan.setComposeFiles(composeFiles);
 
-    // 2) décider/générer Dockerfile si absent, ou si mauvais chemin (Maven vs Gradle)
-    String buildTool = (analysis.getBuildTool()==null ? "" : analysis.getBuildTool().toLowerCase());
-    if (!hasDockerfile) {
-      plan.setShouldGenerateDockerfile(true);
-      plan.setGeneratedDockerfileContent(generateDockerfile(analysis));
-    } else {
+    // 2) décider/générer Dockerfile si absent, ou incohérent (Maven/Gradle croisés)
+    String tool = (analysis.getBuildTool() == null ? "" : analysis.getBuildTool().toLowerCase());
+
+    if (hasDockerfile) {
       try {
         String existing = gitHub.getFileContent(repoUrl, token, plan.getDockerfilePath());
-        boolean gradleButTarget   = "gradle".equals(buildTool) && existing.contains("/target/");
-        boolean mavenButBuildLibs = "maven".equals(buildTool)  && existing.contains("/build/libs/");
+        plan.setExistingDockerfileContent(existing);
+
+        // 👉 PREVIEW = EXISTANT (toujours si présent)
+        plan.setPreviewDockerfileContent(existing);
+        plan.setPreviewSource("existing");
+
+        // Détecter incohérence (ex: projet Gradle mais COPY .../target/*.jar)
+        boolean gradleButTarget   = "gradle".equals(tool) && existing.contains("/target/");
+        boolean mavenButBuildLibs = "maven".equals(tool)  && existing.contains("/build/libs/");
+
         if (gradleButTarget || mavenButBuildLibs) {
-          plan.setShouldGenerateDockerfile(true); // UPDATE_IF_EXISTS
-          plan.setGeneratedDockerfileContent(generateDockerfile(analysis));
+          // On PROPOSE un Dockerfile corrigé, MAIS on NE CHANGE PAS la preview
+          plan.setShouldGenerateDockerfile(true);
+          String generated = dockerfileGen.generate(analysis);
+          plan.setGeneratedDockerfileContent(generated);
+          plan.setProposedDockerfileContent(generated);
+          // NOTE: on NE touche PAS à previewDockerfileContent / previewSource
         }
-      } catch (Exception ignore) { }
+      } catch (Exception ignore) { /* non bloquant */ }
+    } else {
+      // pas de Dockerfile -> on génère & on prévisualise la proposition
+      plan.setShouldGenerateDockerfile(true);
+      String generated = dockerfileGen.generate(analysis);
+      plan.setGeneratedDockerfileContent(generated);
+      plan.setProposedDockerfileContent(generated);
+
+      // 👉 PREVIEW = GÉNÉRÉ (si absent)
+      plan.setPreviewDockerfileContent(generated);
+      plan.setPreviewSource("generated");
     }
 
     return plan;
   }
 
-  /** Compose dev simple si Spring + DB */
+  /** Compose dev simple si Spring + DB (inchangé) */
   public ComposePlan planComposeForDev(StackAnalysis a) {
     ComposePlan cp = new ComposePlan();
     var isSpring = a.getStackType()!=null && a.getStackType().contains("SPRING_BOOT");
@@ -79,107 +109,7 @@ public class ContainerizationService {
     return cp;
   }
 
-  // --- helpers ---
-
-  private String generateDockerfile(StackAnalysis a) {
-    String tool = a.getBuildTool()==null ? "" : a.getBuildTool().toLowerCase();
-
-    if ("maven".equals(tool)) {
-        String jv = safeJava(a.getJavaVersion());
-        String wd  = normalizeWd(a.getWorkingDirectory()); // "." ou "backend"
-      
-        String wdCopy = ".".equals(wd) ? "." : wd; // pour les COPY
-        String wdRun  = ".".equals(wd) ? "/src" : "/src/" + wd; // pour WORKDIR avant mvn
-      
-        return """
-          # Multi-stage build for Spring Boot (Maven)
-          FROM maven:3.9.6-eclipse-temurin-%1$s AS build
-          WORKDIR /src
-          COPY . .
-          WORKDIR %2$s
-          RUN mvn -B -DskipTests clean package
-      
-          FROM eclipse-temurin:%1$s-jre
-          WORKDIR /app
-          COPY --from=build %3$s/target/*.jar app.jar
-          EXPOSE 8080
-          ENTRYPOINT ["java","-jar","/app/app.jar"]
-        """.formatted(jv, wdRun, ".".equals(wd) ? "/src" : "/src/" + wd);
-      }
-      
-
-      if ("gradle".equals(tool)) {
-        String jv = safeJava(a.getJavaVersion());
-        String wd  = normalizeWd(a.getWorkingDirectory());
-        String wdRun = ".".equals(wd) ? "/src" : "/src/" + wd;
-      
-        return """
-          # Multi-stage build for Spring Boot (Gradle)
-          FROM gradle:8.7.0-jdk%1$s AS build
-          WORKDIR /src
-          COPY . .
-          WORKDIR %2$s
-          RUN gradle build -x test --no-daemon
-      
-          FROM eclipse-temurin:%1$s-jre
-          WORKDIR /app
-          COPY --from=build %2$s/build/libs/*.jar app.jar
-          EXPOSE 8080
-          ENTRYPOINT ["java","-jar","/app/app.jar"]
-        """.formatted(jv, wdRun);
-      }
-      
-
-      if ("npm".equals(tool)) {
-        String raw = null;
-        if (a.getProjectDetails()!=null && a.getProjectDetails().get("nodeVersion")!=null) {
-          raw = String.valueOf(a.getProjectDetails().get("nodeVersion"));
-        }
-        String baseTag = normalizeNodeBaseTagForDockerfile(raw); // ex: lts-alpine, 20-alpine
-      
-        return """
-          FROM node:%s
-          WORKDIR /app
-          COPY package*.json ./
-          RUN if [ -f package-lock.json ] || [ -f npm-shrinkwrap.json ]; then \
-                npm ci --omit=dev; \
-              else \
-                npm install --omit=dev; \
-              fi
-          COPY . .
-          EXPOSE 3000
-          CMD ["npm","start"]
-        """.formatted(baseTag);
-      }
-      
-      
-    return "FROM alpine:latest\nCMD [\"echo\",\"No known stack. Provide a Dockerfile.\"]\n";
-  }
-
-  // helper pour convertir "Latest", "lts/*", "20.x", "v20.10.1" -> tag Docker valide
-private static String normalizeNodeBaseTagForDockerfile(String raw) {
-  if (raw == null || raw.isBlank()) return "lts-alpine";
-  String v = raw.trim().toLowerCase();
-
-  // alias non numériques
-  if (v.equals("latest") || v.equals("current") || v.equals("lts") || v.equals("lts/*")) {
-    return "lts-alpine";
-  }
-
-  // 20 | 20.10 | 20.10.1
-  if (v.matches("^v?\\d+(?:\\.\\d+){0,2}$")) {
-    String major = v.replaceFirst("^v", "").split("\\.")[0];
-    return major + "-alpine";
-  }
-
-  // 20.x
-  java.util.regex.Matcher mx = java.util.regex.Pattern.compile("^(\\d+)\\.x$").matcher(v);
-  if (mx.find()) return mx.group(1) + "-alpine";
-
-  // fallback sûr
-  return "lts-alpine";
-}
-
+  // --- helpers déjà existants (composeDevYaml / normalizeWd / isBlank) ---
   private String composeDevYaml(String wd, String dbType, String dbName) {
     boolean pg = "PostgreSQL".equals(dbType);
     String dbImage = pg ? "postgres:16" : "mysql:8";
@@ -213,5 +143,4 @@ private static String normalizeNodeBaseTagForDockerfile(String raw) {
     return wd.replaceFirst("^\\./","");
   }
   private static boolean isBlank(String s){ return s==null || s.isBlank(); }
-  private static String safeJava(String v){ return isBlank(v) ? "17" : v; }
 }
