@@ -3,6 +3,8 @@ package com.example.demo.service;
 import com.example.demo.dto.StackAnalysis;
 import org.springframework.stereotype.Service;
 
+import java.util.Map;
+
 @Service
 public class DockerfileGenerationService {
 
@@ -70,8 +72,29 @@ public class DockerfileGenerationService {
     return "FROM alpine:latest\nCMD [\"echo\",\"Provide a Dockerfile.\"]\n";
   }
 
+  /**
+   * Overload pratique pour le MODE MULTI:
+   * construit un StackAnalysis minimal à partir des infos d’un service.
+   */
+  public String generate(String stackType,
+                         String buildTool,
+                         String javaVersion,
+                         String workingDirectory,
+                         Map<String, Object> projectDetails) {
+    StackAnalysis a = new StackAnalysis(
+        stackType,
+        javaVersion,
+        "github-actions",
+        workingDirectory,
+        null
+    );
+    a.setBuildTool(buildTool);
+    a.setProjectDetails(projectDetails);
+    return generate(a);
+  }
 
-  
+  // ---------------------------------------------------
+
   private static String nodeBaseTag(StackAnalysis a) {
     String raw = a.getProjectDetails()!=null ? String.valueOf(a.getProjectDetails().get("nodeVersion")) : null;
     if (raw==null || raw.isBlank() || raw.equalsIgnoreCase("latest") || raw.equalsIgnoreCase("lts") || raw.equalsIgnoreCase("lts/*"))

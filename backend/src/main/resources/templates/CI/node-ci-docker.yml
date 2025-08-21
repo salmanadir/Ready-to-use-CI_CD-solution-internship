@@ -14,9 +14,7 @@ env:
 jobs:
   ci:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
+    permissions: { contents: read, packages: write }
 
     steps:
       - uses: actions/checkout@v4
@@ -26,9 +24,16 @@ jobs:
         with:
           node-version: ${{ env.NODE_VERSION }}
           cache: npm
+          cache-dependency-path: ${{ env.WORKING_DIR }}/package-lock.json
 
-      - name: Install deps
-        run: npm ci
+      - name: Install deps (ci if lock, else install)
+        shell: bash
+        run: |
+          if [[ -f package-lock.json ]]; then
+            npm ci
+          else
+            npm install
+          fi
         working-directory: ${{ env.WORKING_DIR }}
 
       - name: Tests
@@ -62,7 +67,7 @@ jobs:
       - name: Build image & (conditionally) push
         uses: docker/build-push-action@v6
         with:
-          context: {{dockerContext}}
+          context: ${{ env.WORKING_DIR }}
           file: ${{ env.DOCKERFILE }}
           push: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
           tags: ${{ steps.meta.outputs.tags }}

@@ -14,9 +14,7 @@ env:
 jobs:
   ci:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
+    permissions: { contents: read, packages: write }
 
     steps:
       - uses: actions/checkout@v4
@@ -27,19 +25,27 @@ jobs:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
 
-      - name: Make gradlew executable
-        run: chmod +x ./gradlew
+      # Détecte gradlew sinon gradle
+      - name: Pick Gradle command
         working-directory: ${{ env.WORKING_DIR }}
+        shell: bash
+        run: |
+          if [[ -f gradlew ]]; then
+            chmod +x gradlew
+            echo "GRADLE=./gradlew" >> "$GITHUB_ENV"
+          else
+            echo "GRADLE=gradle" >> "$GITHUB_ENV"
+          fi
 
       - name: Setup Gradle (cache)
         uses: gradle/actions/setup-gradle@v3
 
       - name: Tests
-        run: ./gradlew test --no-daemon
+        run: ${{ env.GRADLE }} test --no-daemon
         working-directory: ${{ env.WORKING_DIR }}
 
       - name: Build (skip tests)
-        run: ./gradlew build -x test --no-daemon
+        run: ${{ env.GRADLE }} build -x test --no-daemon
         working-directory: ${{ env.WORKING_DIR }}
 
       # --- Docker ---
@@ -65,7 +71,7 @@ jobs:
       - name: Build image & (conditionally) push
         uses: docker/build-push-action@v6
         with:
-          context: {{dockerContext}}
+          context: ${{ env.WORKING_DIR }}
           file: ${{ env.DOCKERFILE }}
           push: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
           tags: ${{ steps.meta.outputs.tags }}

@@ -5,7 +5,9 @@ import com.example.demo.dto.ComposePlan;
 import com.example.demo.dto.StackAnalysis;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 @Service
 public class ContainerizationService {
@@ -18,7 +20,7 @@ public class ContainerizationService {
     this.dockerfileGen = dockerfileGen;
   }
 
-  /** Calcule le plan Docker (Dockerfile existant ? à générer ? où builder ?) */
+  /** Calcule le plan Docker (SINGLE) — Dockerfile existant ? à générer ? où builder ? */
   public ContainerPlan plan(String repoUrl, String token, String repoFullName,
                             StackAnalysis analysis, String imageNameOverride, String registry) {
     ContainerPlan plan = new ContainerPlan();
@@ -32,7 +34,7 @@ public class ContainerizationService {
     String wd = normalizeWd(analysis.getWorkingDirectory());
     plan.setWorkingDirectory(wd);
 
-    // important : le build context doit pointer sur le WD
+    // important : le build context pointe sur la racine (Dockerfile peut être en sous-dossier)
     plan.setDockerContext(".");
 
     // 1) détecter Dockerfile/compose sous WD
@@ -77,7 +79,6 @@ public class ContainerizationService {
           String generated = dockerfileGen.generate(analysis);
           plan.setGeneratedDockerfileContent(generated);
           plan.setProposedDockerfileContent(generated);
-          // NOTE: on NE touche PAS à previewDockerfileContent / previewSource
         }
       } catch (Exception ignore) { /* non bloquant */ }
     } else {
@@ -95,7 +96,58 @@ public class ContainerizationService {
     return plan;
   }
 
-  /** Compose dev simple si Spring + DB (inchangé) */
+  /**
+   * Calcule un plan Docker PAR SERVICE (MULTI).
+   * `services` = liste issue de l'endpoint analyze (mode "multi") :
+   *   { id, stackType, workingDirectory, buildTool, projectDetails, javaVersion, orchestrator, ... }
+   */
+  public List<ServiceContainerPlan> planMulti(String repoUrl,
+                                              String token,
+                                              String repoFullName,
+                                              List<Map<String, Object>> services,
+                                              String registry) {
+    List<ServiceContainerPlan> out = new ArrayList<>();
+    if (services == null) return out;
+
+    String reg = isBlank(registry) ? "ghcr.io" : registry;
+    String baseImg = (repoFullName==null ? "image" : repoFullName.toLowerCase().replace('/', '-'));
+
+    int idx = 0;
+    for (Map<String, Object> s : services) {
+      String id         = stringOrDefault(s.get("id"), "service-" + (idx++));
+      String stackType  = stringOrNull(s.get("stackType"));
+      String wd         = stringOrDefault(s.get("workingDirectory"), ".");
+      String tool       = stringOrNull(s.get("buildTool"));
+      String javaVer    = stringOrNull(s.get("javaVersion"));
+      @SuppressWarnings("unchecked")
+      Map<String, Object> details = (Map<String, Object>) s.get("projectDetails");
+
+      // Construire un StackAnalysis minimal par service
+      StackAnalysis a = new StackAnalysis(
+              stackType,
+              javaVer,
+              "github-actions",
+              wd,
+              null
+      );
+      if (tool != null) a.setBuildTool(tool);
+      a.setProjectDetails(details);
+
+      // imageName par service (évite les collisions) : owner/repo-<id>
+      String imageNameOverride = baseImg + "-" + id;
+
+      // réutilise la logique single pour détecter/générer
+      ContainerPlan base = plan(repoUrl, token, repoFullName, a, imageNameOverride, reg);
+
+      // Wrap vers un plan “multi” simplifié pour le contrôleur
+      ServiceContainerPlan scp = ServiceContainerPlan.from(id, base);
+      out.add(scp);
+    }
+
+    return out;
+  }
+
+  /** Compose dev simple si Spring + DB (SINGLE) */
   public ComposePlan planComposeForDev(StackAnalysis a) {
     ComposePlan cp = new ComposePlan();
     var isSpring = a.getStackType()!=null && a.getStackType().contains("SPRING_BOOT");
@@ -109,7 +161,7 @@ public class ContainerizationService {
     return cp;
   }
 
-  // --- helpers déjà existants (composeDevYaml / normalizeWd / isBlank) ---
+  // --- helpers ---
   private String composeDevYaml(String wd, String dbType, String dbName) {
     boolean pg = "PostgreSQL".equals(dbType);
     String dbImage = pg ? "postgres:16" : "mysql:8";
@@ -143,4 +195,76 @@ public class ContainerizationService {
     return wd.replaceFirst("^\\./","");
   }
   private static boolean isBlank(String s){ return s==null || s.isBlank(); }
+
+  private static String stringOrNull(Object o){ return (o==null || "null".equals(String.valueOf(o))) ? null : String.valueOf(o); }
+  private static String stringOrDefault(Object o, String def){ String v = stringOrNull(o); return v==null?def:v; }
+
+  // ===============================
+  // DTO interne pour le mode MULTI
+  // ===============================
+  public static class ServiceContainerPlan {
+    private String serviceId;
+    private String workingDirectory;
+
+    private boolean hasDockerfile;
+    private String dockerfilePath;
+
+    private boolean shouldGenerateDockerfile;
+    private String existingDockerfileContent;
+    private String generatedDockerfileContent;
+    private String previewDockerfileContent;
+    private String previewSource;
+
+    private String registry = "ghcr.io";
+    private String imageName;
+
+    public static ServiceContainerPlan from(String id, ContainerPlan base){
+      ServiceContainerPlan p = new ServiceContainerPlan();
+      p.serviceId = id;
+      p.workingDirectory = base.getWorkingDirectory();
+      p.hasDockerfile = base.isHasDockerfile();
+      p.dockerfilePath = base.getDockerfilePath();
+      p.shouldGenerateDockerfile = base.isShouldGenerateDockerfile();
+      p.existingDockerfileContent = base.getExistingDockerfileContent();
+      p.generatedDockerfileContent = base.getGeneratedDockerfileContent();
+      p.previewDockerfileContent = base.getPreviewDockerfileContent();
+      p.previewSource = base.getPreviewSource();
+      p.registry = base.getRegistry();
+      p.imageName = base.getImageName();
+      return p;
+    }
+
+    public String getServiceId() { return serviceId; }
+    public void setServiceId(String serviceId) { this.serviceId = serviceId; }
+
+    public String getWorkingDirectory() { return workingDirectory; }
+    public void setWorkingDirectory(String workingDirectory) { this.workingDirectory = workingDirectory; }
+
+    public boolean isHasDockerfile() { return hasDockerfile; }
+    public void setHasDockerfile(boolean hasDockerfile) { this.hasDockerfile = hasDockerfile; }
+
+    public String getDockerfilePath() { return dockerfilePath; }
+    public void setDockerfilePath(String dockerfilePath) { this.dockerfilePath = dockerfilePath; }
+
+    public boolean isShouldGenerateDockerfile() { return shouldGenerateDockerfile; }
+    public void setShouldGenerateDockerfile(boolean shouldGenerateDockerfile) { this.shouldGenerateDockerfile = shouldGenerateDockerfile; }
+
+    public String getExistingDockerfileContent() { return existingDockerfileContent; }
+    public void setExistingDockerfileContent(String existingDockerfileContent) { this.existingDockerfileContent = existingDockerfileContent; }
+
+    public String getGeneratedDockerfileContent() { return generatedDockerfileContent; }
+    public void setGeneratedDockerfileContent(String generatedDockerfileContent) { this.generatedDockerfileContent = generatedDockerfileContent; }
+
+    public String getPreviewDockerfileContent() { return previewDockerfileContent; }
+    public void setPreviewDockerfileContent(String previewDockerfileContent) { this.previewDockerfileContent = previewDockerfileContent; }
+
+    public String getPreviewSource() { return previewSource; }
+    public void setPreviewSource(String previewSource) { this.previewSource = previewSource; }
+
+    public String getRegistry() { return registry; }
+    public void setRegistry(String registry) { this.registry = registry; }
+
+    public String getImageName() { return imageName; }
+    public void setImageName(String imageName) { this.imageName = imageName; }
+  }
 }

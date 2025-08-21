@@ -6,14 +6,17 @@ import org.springframework.stereotype.Service;
 
 @Service
 public class ContainerizationWriter {
+
   private final GitHubService gitHub;
+
   public ContainerizationWriter(GitHubService gitHub) { this.gitHub = gitHub; }
 
-  public void ensureDockerfile(String token, String repoFullName, String branch,
+  /** Retourne le PushResult pour historiser le commit */
+  public GitHubService.PushResult ensureDockerfile(String token, String repoFullName, String branch,
                                ContainerPlan plan, GitHubService.FileHandlingStrategy strategy)
       throws java.io.IOException {
-    if (!plan.isShouldGenerateDockerfile()) return;
-    gitHub.pushWorkflowToGitHub(
+    if (!plan.isShouldGenerateDockerfile()) return null;
+    return gitHub.pushWorkflowToGitHub(
       token,
       repoFullName,
       branch,
@@ -37,7 +40,6 @@ public class ContainerizationWriter {
     );
   }
 
-  // (optionnel) utilitaire générique si tu veux pousser d'autres fichiers
   public void pushFile(String token, String repoFullName, String branch,
                        String path, String content,
                        GitHubService.FileHandlingStrategy strategy) throws java.io.IOException {
