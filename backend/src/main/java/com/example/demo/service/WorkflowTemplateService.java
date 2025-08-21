@@ -1,20 +1,15 @@
 package com.example.demo.service;
 
-import java.util.List;
-
 import org.springframework.stereotype.Service;
-
 import com.example.demo.dto.StackAnalysis;
-
 
 @Service
 public class WorkflowTemplateService {
-    public String getTemplatePath(StackAnalysis info) {
-        String buildTool = info.getBuildTool().toLowerCase();
-        if (!List.of("maven", "gradle", "npm").contains(buildTool)) {
-            throw new IllegalArgumentException("Unsupported build tool: " + buildTool);
-        }
-        return "templates/CI/" + buildTool + "_ci.yml";
-    }
-    
+  public String getTemplatePath(StackAnalysis info) {
+    String tool = info.getBuildTool() == null ? "" : info.getBuildTool().toLowerCase();
+    if ("maven".equals(tool))  return "templates/CI/maven-ci-docker.yml";
+    if ("gradle".equals(tool)) return "templates/CI/gradle-ci-docker.yml";
+    if ("npm".equals(tool))    return "templates/CI/node-ci-docker.yml";
+    return "templates/ci/ci.yml";
+  }
 }
