@@ -35,8 +35,15 @@ public class ContainerizationService {
     plan.setWorkingDirectory(wd);
 
     // important : le build context pointe sur la racine (Dockerfile peut être en sous-dossier)
-    plan.setDockerContext(".");
+String tool = (analysis.getBuildTool() == null ? "" : analysis.getBuildTool().toLowerCase());
+String stack = analysis.getStackType() == null ? "" : analysis.getStackType().toLowerCase();
 
+boolean isNode = "npm".equals(tool) || stack.contains("node_js") || stack.contains("node");
+if (isNode) {
+  plan.setDockerContext(".".equals(wd) ? "." : wd);     // ex: "frontend"
+} else {
+  plan.setDockerContext(".");                           // Java par défaut
+}
     // 1) détecter Dockerfile/compose sous WD
     var files = gitHub.getRepositoryContents(repoUrl, token, ".".equals(wd) ? null : wd);
     if (files == null) files = List.of();
@@ -58,7 +65,6 @@ public class ContainerizationService {
     plan.setComposeFiles(composeFiles);
 
     // 2) décider/générer Dockerfile si absent, ou incohérent (Maven/Gradle croisés)
-    String tool = (analysis.getBuildTool() == null ? "" : analysis.getBuildTool().toLowerCase());
 
     if (hasDockerfile) {
       try {

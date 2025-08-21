@@ -10,6 +10,7 @@ env:
   REGISTRY: {{registry}}
   IMAGE_NAME: {{imageName}}
   DOCKERFILE: {{dockerfilePath}}
+  DOCKER_BUILD_CONTEXT: {{dockerContext}}   # ex: "." pour Java
 
 jobs:
   ci:
@@ -25,7 +26,6 @@ jobs:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
 
-      # Détecte mvnw sinon mvn
       - name: Pick Maven command
         working-directory: ${{ env.WORKING_DIR }}
         shell: bash
@@ -54,10 +54,6 @@ jobs:
         run: ${{ env.MVN }} -B package -DskipTests
         working-directory: ${{ env.WORKING_DIR }}
 
-      # --- Docker ---
-      - name: Ensure Docker context 'default'
-        run: docker context use default || true
-
       - name: Login to GHCR
         uses: docker/login-action@v3
         with:
@@ -77,7 +73,7 @@ jobs:
       - name: Build image & (conditionally) push
         uses: docker/build-push-action@v6
         with:
-          context: ${{ env.WORKING_DIR }}
+          context: ${{ env.DOCKER_BUILD_CONTEXT }}   # ← utilise le contexte calculé
           file: ${{ env.DOCKERFILE }}
           push: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
           tags: ${{ steps.meta.outputs.tags }}
