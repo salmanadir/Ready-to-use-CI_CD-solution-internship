@@ -32,7 +32,7 @@ public class DockerfileHistory {
   @Column(length = 400, nullable = false)
   private String dockerfilePath;           
 
-  @Lob
+
   @Column(columnDefinition = "TEXT", nullable = false)
   private String content;                  
 

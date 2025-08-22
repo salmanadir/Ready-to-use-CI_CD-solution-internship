@@ -1,7 +1,6 @@
 package com.example.demo.service;
 
 import com.example.demo.dto.ContainerPlan;
-import com.example.demo.dto.ComposePlan;
 import com.example.demo.dto.StackAnalysis;
 import org.springframework.stereotype.Service;
 
@@ -34,17 +33,17 @@ public class ContainerizationService {
     String wd = normalizeWd(analysis.getWorkingDirectory());
     plan.setWorkingDirectory(wd);
 
-    // important : le build context pointe sur la racine (Dockerfile peut être en sous-dossier)
-String tool = (analysis.getBuildTool() == null ? "" : analysis.getBuildTool().toLowerCase());
-String stack = analysis.getStackType() == null ? "" : analysis.getStackType().toLowerCase();
+    // Build context: Node → sous-dossier, Java → racine
+    String tool = (analysis.getBuildTool() == null ? "" : analysis.getBuildTool().toLowerCase());
+    String stack = analysis.getStackType() == null ? "" : analysis.getStackType().toLowerCase();
+    boolean isNode = "npm".equals(tool) || stack.contains("node_js") || stack.contains("node");
+    if (isNode) {
+      plan.setDockerContext(".".equals(wd) ? "." : wd); // ex: "frontend"
+    } else {
+      plan.setDockerContext("."); // Java par défaut
+    }
 
-boolean isNode = "npm".equals(tool) || stack.contains("node_js") || stack.contains("node");
-if (isNode) {
-  plan.setDockerContext(".".equals(wd) ? "." : wd);     // ex: "frontend"
-} else {
-  plan.setDockerContext(".");                           // Java par défaut
-}
-    // 1) détecter Dockerfile/compose sous WD
+    // === 1) Détection Dockerfile dans le WD
     var files = gitHub.getRepositoryContents(repoUrl, token, ".".equals(wd) ? null : wd);
     if (files == null) files = List.of();
 
@@ -52,35 +51,20 @@ if (isNode) {
     plan.setHasDockerfile(hasDockerfile);
     plan.setDockerfilePath(".".equals(wd) ? "Dockerfile" : wd + "/Dockerfile");
 
-    boolean hasCompose = files.stream().anyMatch(f -> {
-      var n = String.valueOf(f.get("name"));
-      return n.equals("docker-compose.yml") || n.equals("docker-compose.yaml") || n.equals("compose.yaml");
-    });
-    plan.setHasCompose(hasCompose);
-
-    var composeFiles = files.stream().map(f -> String.valueOf(f.get("name")))
-        .filter(n -> n.equals("docker-compose.yml") || n.equals("docker-compose.yaml") || n.equals("compose.yaml"))
-        .map(n -> ".".equals(wd) ? n : wd + "/" + n)
-        .toList();
-    plan.setComposeFiles(composeFiles);
-
-    // 2) décider/générer Dockerfile si absent, ou incohérent (Maven/Gradle croisés)
-
+    // === 2) Générer si absent ou incohérent (Maven/Gradle croisés)
     if (hasDockerfile) {
       try {
         String existing = gitHub.getFileContent(repoUrl, token, plan.getDockerfilePath());
         plan.setExistingDockerfileContent(existing);
 
-        // 👉 PREVIEW = EXISTANT (toujours si présent)
+        // Preview = existant
         plan.setPreviewDockerfileContent(existing);
         plan.setPreviewSource("existing");
 
-        // Détecter incohérence (ex: projet Gradle mais COPY .../target/*.jar)
         boolean gradleButTarget   = "gradle".equals(tool) && existing.contains("/target/");
         boolean mavenButBuildLibs = "maven".equals(tool)  && existing.contains("/build/libs/");
 
         if (gradleButTarget || mavenButBuildLibs) {
-          // On PROPOSE un Dockerfile corrigé, MAIS on NE CHANGE PAS la preview
           plan.setShouldGenerateDockerfile(true);
           String generated = dockerfileGen.generate(analysis);
           plan.setGeneratedDockerfileContent(generated);
@@ -93,8 +77,6 @@ if (isNode) {
       String generated = dockerfileGen.generate(analysis);
       plan.setGeneratedDockerfileContent(generated);
       plan.setProposedDockerfileContent(generated);
-
-      // 👉 PREVIEW = GÉNÉRÉ (si absent)
       plan.setPreviewDockerfileContent(generated);
       plan.setPreviewSource("generated");
     }
@@ -116,7 +98,7 @@ if (isNode) {
     if (services == null) return out;
 
     String reg = isBlank(registry) ? "ghcr.io" : registry;
-    String baseImg = (repoFullName==null ? "image" : repoFullName.toLowerCase().replace('/', '-'));
+    String baseImg = (repoFullName == null ? "owner/repo" : repoFullName.toLowerCase());
 
     int idx = 0;
     for (Map<String, Object> s : services) {
@@ -139,10 +121,10 @@ if (isNode) {
       if (tool != null) a.setBuildTool(tool);
       a.setProjectDetails(details);
 
-      // imageName par service (évite les collisions) : owner/repo-<id>
+      // imageName par service : owner/repo-<id>
       String imageNameOverride = baseImg + "-" + id;
 
-      // réutilise la logique single pour détecter/générer
+      // réutilise la logique single
       ContainerPlan base = plan(repoUrl, token, repoFullName, a, imageNameOverride, reg);
 
       // Wrap vers un plan “multi” simplifié pour le contrôleur
@@ -153,49 +135,7 @@ if (isNode) {
     return out;
   }
 
-  /** Compose dev simple si Spring + DB (SINGLE) */
-  public ComposePlan planComposeForDev(StackAnalysis a) {
-    ComposePlan cp = new ComposePlan();
-    var isSpring = a.getStackType()!=null && a.getStackType().contains("SPRING_BOOT");
-    var db = a.getDatabaseType();
-    if (!isSpring || db==null || "NONE".equals(db)) { cp.shouldGenerateCompose = false; return cp; }
-
-    String wd = normalizeWd(a.getWorkingDirectory());
-    cp.shouldGenerateCompose = true;
-    cp.composePath = "docker-compose.dev.yml";
-    cp.content = composeDevYaml(wd, db, a.getDatabaseName());
-    return cp;
-  }
-
   // --- helpers ---
-  private String composeDevYaml(String wd, String dbType, String dbName) {
-    boolean pg = "PostgreSQL".equals(dbType);
-    String dbImage = pg ? "postgres:16" : "mysql:8";
-    String port = pg ? "5432" : "3306";
-    String dbEnv = pg
-      ? "POSTGRES_DB="+(dbName==null?"my_database":dbName)+"\n      POSTGRES_USER=postgres\n      POSTGRES_PASSWORD=postgres"
-      : "MYSQL_DATABASE="+(dbName==null?"my_database":dbName)+"\n      MYSQL_USER=mysql\n      MYSQL_PASSWORD=mysql\n      MYSQL_ROOT_PASSWORD=rootpassword";
-
-    return """
-      services:
-        app:
-          build:
-            context: .
-            dockerfile: %s/Dockerfile
-          ports:
-            - "8080:8080"
-          environment:
-            SPRING_PROFILES_ACTIVE: production
-          depends_on: [database]
-        database:
-          image: %s
-          environment:
-            %s
-          ports:
-            - "%s:%s"
-      """.formatted(".".equals(wd) ? "." : wd, dbImage, dbEnv, port, port);
-  }
-
   private static String normalizeWd(String wd) {
     if (wd == null || wd.isBlank() || ".".equals(wd)) return ".";
     return wd.replaceFirst("^\\./","");
