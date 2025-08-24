@@ -242,66 +242,81 @@ public class GitHubService {
         try { Thread.sleep(2000); } catch (InterruptedException e) { Thread.currentThread().interrupt(); }
     }
 
-    private PushResult updateFile(GHRepository repository, String branch, String filePath, String content) throws IOException {
-        try {
-            GHContent existingContent = repository.getFileContent(filePath, branch);
-            String existing = existingContent.getContent();
-            if (content.equals(existing)) {
-                return new PushResult(null, filePath, PushAction.SKIPPED, "Content unchanged");
-            }
-            GHContentUpdateResponse response = repository.createContent()
-                    .path(filePath)
-                    .content(content)
-                    .branch(branch)
-                    .message("Update " + extractFileName(filePath))
-                    .sha(existingContent.getSha())
-                    .commit();
-            return new PushResult(response.getCommit().getSHA1(), filePath, PushAction.UPDATED, "File updated successfully");
-        } catch (IOException e) {
-            throw new IOException("Failed to update file " + filePath + ": " + e.getMessage(), e);
+    // updateFile(...)
+private PushResult updateFile(GHRepository repository, String branch, String filePath, String content) throws IOException {
+    try {
+        GHContent existingContent = repository.getFileContent(filePath, branch);
+        String existing = existingContent.getContent();
+        if (content.equals(existing)) {
+            return new PushResult(null, filePath, PushAction.SKIPPED, "Content unchanged",
+                    null, existingContent.getSha());
         }
+        GHContentUpdateResponse response = repository.createContent()
+                .path(filePath)
+                .content(content)
+                .branch(branch)
+                .message("Update " + extractFileName(filePath))
+                .sha(existingContent.getSha())
+                .commit();
+
+        String commitUrl = response.getCommit() != null ? response.getCommit().getHtmlUrl() : null;
+        return new PushResult(response.getCommit().getSHA1(), filePath, PushAction.UPDATED, "File updated successfully",
+                commitUrl, existingContent.getSha());
+    } catch (IOException e) {
+        throw new IOException("Failed to update file " + filePath + ": " + e.getMessage(), e);
     }
+}
+
 
     private PushResult createFile(GHRepository repository, String branch, String filePath, String content) throws IOException {
         return createFile(repository, branch, filePath, content, "Add " + extractFileName(filePath));
     }
 
-    private PushResult createFile(GHRepository repository, String branch, String filePath, String content, String commitMessage) throws IOException {
-        try {
-            GHContentUpdateResponse response = repository.createContent()
-                    .path(filePath)
-                    .content(content)
-                    .branch(branch)
-                    .message(commitMessage)
-                    .commit();
-            return new PushResult(response.getCommit().getSHA1(), filePath, PushAction.CREATED, "File created successfully");
-        } catch (IOException apiError) {
-            return createFileViaRestApi(repository.getFullName(), repository.getOwner().getLogin(), branch, filePath, content, commitMessage);
-        }
+    // createFile(...)
+private PushResult createFile(GHRepository repository, String branch, String filePath, String content, String commitMessage) throws IOException {
+    try {
+        GHContentUpdateResponse response = repository.createContent()
+                .path(filePath)
+                .content(content)
+                .branch(branch)
+                .message(commitMessage)
+                .commit();
+
+        String commitUrl = response.getCommit() != null ? response.getCommit().getHtmlUrl() : null;
+        return new PushResult(response.getCommit().getSHA1(), filePath, PushAction.CREATED, "File created successfully",
+                commitUrl, null);
+    } catch (IOException apiError) {
+        return createFileViaRestApi(repository.getFullName(), repository.getOwner().getLogin(), branch, filePath, content, commitMessage);
     }
+}
 
-    private PushResult createFileViaRestApi(String repoFullName, String owner, String branch, String filePath, String content, String commitMessage) throws IOException {
-        try {
-            String apiUrl = GITHUB_API_URL + "/repos/" + repoFullName + "/contents/" + filePath;
-            HttpHeaders headers = createHeaders(getCurrentToken());
 
-            Map<String, Object> requestBody = new HashMap<>();
-            requestBody.put("message", commitMessage);
-            requestBody.put("content", Base64.getEncoder().encodeToString(content.getBytes(StandardCharsets.UTF_8)));
-            requestBody.put("branch", branch);
+    // createFileViaRestApi(...)
+private PushResult createFileViaRestApi(String repoFullName, String owner, String branch, String filePath, String content, String commitMessage) throws IOException {
+    try {
+        String apiUrl = GITHUB_API_URL + "/repos/" + repoFullName + "/contents/" + filePath;
+        HttpHeaders headers = createHeaders(getCurrentToken());
 
-            HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
-            ResponseEntity<Map> response = restTemplate.exchange(apiUrl, HttpMethod.PUT, entity, Map.class);
+        Map<String, Object> requestBody = new HashMap<>();
+        requestBody.put("message", commitMessage);
+        requestBody.put("content", Base64.getEncoder().encodeToString(content.getBytes(StandardCharsets.UTF_8)));
+        requestBody.put("branch", branch);
 
-            Map<String, Object> responseBody = response.getBody();
-            Map<String, Object> commitInfo = (Map<String, Object>) responseBody.get("commit");
-            String commitSha = (String) commitInfo.get("sha");
+        HttpEntity<Map<String, Object>> entity = new HttpEntity<>(requestBody, headers);
+        ResponseEntity<Map> response = restTemplate.exchange(apiUrl, HttpMethod.PUT, entity, Map.class);
 
-            return new PushResult(commitSha, filePath, PushAction.CREATED, "File created via REST API");
-        } catch (Exception e) {
-            throw new IOException("Both GitHub API and REST API failed: " + e.getMessage(), e);
-        }
+        Map<String, Object> responseBody = response.getBody();
+        Map<String, Object> commitInfo = (Map<String, Object>) responseBody.get("commit");
+        String commitSha = (String) commitInfo.get("sha");
+        String commitUrl = commitInfo.get("html_url") != null ? String.valueOf(commitInfo.get("html_url")) : null;
+
+        return new PushResult(commitSha, filePath, PushAction.CREATED, "File created via REST API",
+                commitUrl, null);
+    } catch (Exception e) {
+        throw new IOException("Both GitHub API and REST API failed: " + e.getMessage(), e);
     }
+}
+
 
     private String currentToken;
     public void setCurrentToken(String token) { this.currentToken = token; }
@@ -372,25 +387,86 @@ public class GitHubService {
         return headers;
     }
 
-    public static class PushResult {
-        private final String commitHash;
-        private final String filePath;
-        private final PushAction action;
-        private final String message;
+    // Dans GitHubService
+public static class PushResult {
+    private final String commitHash;
+    private final String filePath;
+    private final PushAction action;
+    private final String message;
+    private final String commitHtmlUrl;   // URL web du commit (pratique à afficher)
+    private final String previousSha;     // SHA du blob/fichier avant update (null si création)
 
-        public PushResult(String commitHash, String filePath, PushAction action, String message) {
-            this.commitHash = commitHash;
-            this.filePath = filePath;
-            this.action = action;
-            this.message = message;
-        }
-
-        public String getCommitHash() { return commitHash; }
-        public String getFilePath() { return filePath; }
-        public PushAction getAction() { return action; }
-        public String getMessage() { return message; }
+    public PushResult(String commitHash, String filePath, PushAction action, String message) {
+        this(commitHash, filePath, action, message, null, null);
     }
+
+    public PushResult(String commitHash, String filePath, PushAction action, String message,
+                      String commitHtmlUrl, String previousSha) {
+        this.commitHash = commitHash;
+        this.filePath = filePath;
+        this.action = action;
+        this.message = message;
+        this.commitHtmlUrl = commitHtmlUrl;
+        this.previousSha = previousSha;
+    }
+
+    public String getCommitHash() { return commitHash; }
+    public String getFilePath() { return filePath; }
+    public PushAction getAction() { return action; }
+    public String getMessage() { return message; }
+    public String getCommitHtmlUrl() { return commitHtmlUrl; }
+    public String getPreviousSha() { return previousSha; }
+}
+
+    
 
     public enum PushAction { CREATED, UPDATED, SKIPPED }
     public enum FileHandlingStrategy { UPDATE_IF_EXISTS, CREATE_NEW_ALWAYS, FAIL_IF_EXISTS }
+    // Lecture "safe" (Optional) — idéal avant de décider EXISTING vs GENERATED
+public Optional<String> tryGetFileContent(String repoUrl, String token, String filePath) {
+    try {
+        return Optional.ofNullable(getFileContent(repoUrl, token, filePath));
+    } catch (RuntimeException e) {
+        return Optional.empty();
+    }
+}
+
+/** Liste des fichiers compose connus à la racine (docker-compose.yml/.yaml, compose.yaml). */
+public List<String> findComposeCandidatesAtRoot(String repoUrl, String token) {
+    List<String> out = new ArrayList<>();
+    try {
+        List<Map<String, Object>> root = getRepositoryContents(repoUrl, token, null);
+        if (root == null) return out;
+        for (Map<String, Object> f : root) {
+            String name = String.valueOf(f.get("name"));
+            if ("docker-compose.yml".equals(name) || "docker-compose.yaml".equals(name) || "compose.yaml".equals(name)) {
+                out.add(name);
+            }
+        }
+    } catch (Exception ignored) {}
+    return out;
+}
+
+/** Récupère le SHA du dernier commit qui a modifié un chemin donné (utile pour enrichir l’history). */
+public Optional<String> getLatestCommitShaForPath(String token, String repoFullName, String branch, String path) {
+    try {
+        GitHub gh = GitHub.connectUsingOAuth(token);
+        GHRepository repo = gh.getRepository(repoFullName);
+        // Attention: GitHub API peut limiter — on prend le premier commit de la liste filtrée par path
+        PagedIterable<GHCommit> commits = repo.queryCommits().from(branch).path(path).list();
+        Iterator<GHCommit> it = commits.iterator();
+        if (it.hasNext()) {
+            return Optional.ofNullable(it.next().getSHA1());
+        }
+    } catch (Exception ignored) {}
+    return Optional.empty();
+}
+
+/** Expose aussi la default branch (pratique dans certains services d’history). */
+public String getDefaultBranch(String token, String repoFullName) throws IOException {
+    GitHub gh = GitHub.connectUsingOAuth(token);
+    GHRepository repo = gh.getRepository(repoFullName);
+    return repo.getDefaultBranch();
+}
+
 }

@@ -1,11 +1,11 @@
 package com.example.demo.controller;
 
 import com.example.demo.ci.template.TemplateRenderer;
-import com.example.demo.dto.ComposePlan;
 import com.example.demo.dto.ContainerPlan;
 import com.example.demo.dto.StackAnalysis;
 import com.example.demo.dto.WorkflowGenerationRequest;
 import com.example.demo.model.CiWorkflow;
+import com.example.demo.model.DockerComposeHistory;
 import com.example.demo.model.Repo;
 import com.example.demo.model.User;
 import com.example.demo.repository.RepoRepository;
@@ -33,10 +33,16 @@ public class CiWorkflowController {
     @Autowired private RepoRepository repoRepository;
     @Autowired private ContainerizationService containerizationService;
     @Autowired private ContainerizationWriter containerizationWriter;
-    @Autowired private DockerfileHistoryService dockerfileHistoryService; // <-- NEW
+    @Autowired private DockerfileHistoryService dockerfileHistoryService;
+    @Autowired private DockerComposeHistoryService dockerComposeHistoryService;
+
+
+    // NEW: service dédié au compose de prod
+    @Autowired private DockerComposeService dockerComposeService;
 
     // =====================================================================================
     // A) PREVIEW (ne push rien) — SINGLE ou MULTI selon request.services
+    //    -> ne traite QUE Dockerfile/CI (aucune logique compose ici)
     // =====================================================================================
     @PostMapping("/docker/preview")
     public ResponseEntity<?> previewDocker(@RequestBody WorkflowGenerationRequest request,
@@ -56,15 +62,24 @@ public class CiWorkflowController {
             WorkflowGenerationRequest.DockerOptions docker = request.getDocker();
             if (docker == null) docker = new WorkflowGenerationRequest.DockerOptions();
 
+            // ---- MULTI: plans par service (uniquement Dockerfiles)
             if (request.getServices()!=null && !request.getServices().isEmpty()) {
                 var plans = containerizationService.planMulti(
                         repo.getUrl(), token, repo.getFullName(), request.getServices(), docker.getRegistry());
                 boolean readyForCi = plans.stream().noneMatch(ServiceContainerPlan::isShouldGenerateDockerfile);
-                return ResponseEntity.ok(Map.of("success", true, "mode", "multi", "readyForCi", readyForCi, "plans", plans));
+                return ResponseEntity.ok(Map.of(
+                        "success", true,
+                        "mode", "multi",
+                        "readyForCi", readyForCi,
+                        "plans", plans
+                ));
             }
 
+            // ---- SINGLE
             StackAnalysis info = request.getTechStackInfo();
-            if (info == null) return ResponseEntity.badRequest().body(Map.of("success", false, "message", "TechStackInfo is null"));
+            if (info == null) {
+                return ResponseEntity.badRequest().body(Map.of("success", false, "message", "TechStackInfo is null"));
+            }
 
             ContainerPlan containerPlan = containerizationService.plan(
                     repo.getUrl(), token,
@@ -73,18 +88,13 @@ public class CiWorkflowController {
                     info, docker.getImageNameOverride(), docker.getRegistry()
             );
 
-            ComposePlan composePlan = null;
-            if (docker.isGenerateCompose()) composePlan = containerizationService.planComposeForDev(info);
-
-            boolean readyForCi = !containerPlan.isShouldGenerateDockerfile()
-                    && (!docker.isGenerateCompose() || (containerPlan.isHasCompose() || (composePlan != null && composePlan.shouldGenerateCompose)));
+            boolean readyForCi = !containerPlan.isShouldGenerateDockerfile();
 
             Map<String,Object> out = new HashMap<>();
             out.put("success", true);
             out.put("mode", "single");
             out.put("readyForCi", readyForCi);
             out.put("containerPlan", containerPlan);
-            if (composePlan != null) out.put("composePlan", composePlan);
             return ResponseEntity.ok(out);
 
         } catch (Exception e) {
@@ -162,7 +172,8 @@ public class CiWorkflowController {
 
             if (!containerPlan.isShouldGenerateDockerfile()) {
                 return ResponseEntity.ok(Map.of(
-                        "success", true, "mode", "single",
+                        "success", true,
+                        "mode", "single",
                         "message", "Dockerfile already present — nothing to apply",
                         "dockerfilePath", containerPlan.getDockerfilePath()
                 ));
@@ -179,7 +190,8 @@ public class CiWorkflowController {
             dockerfileHistoryService.recordSingle(repo, containerPlan, pr);
 
             return ResponseEntity.ok(Map.of(
-                    "success", true, "mode", "single",
+                    "success", true,
+                    "mode", "single",
                     "message", "Dockerfile generated & pushed",
                     "dockerfilePath", containerPlan.getDockerfilePath(),
                     "commitHash", pr != null ? pr.getCommitHash() : null
@@ -193,12 +205,196 @@ public class CiWorkflowController {
     }
 
     // =====================================================================================
-    // C) APPLY COMPOSE DEV (push) — single (inchangé)
+    // C) COMPOSE PROD — PREVIEW (scan + proposition si absent)
     // =====================================================================================
-    @PostMapping("/compose/apply")
-    @Transactional
-    public ResponseEntity<?> applyCompose(@RequestBody WorkflowGenerationRequest request,
+    @PostMapping("/compose/prod/preview")
+    public ResponseEntity<?> previewComposeProd(@RequestBody WorkflowGenerationRequest request,
+                                                Authentication authentication) {
+        try {
+            var repo = requireAuthAndRepo(authentication, request.getRepoId());
+            if (repo == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
+                    "success", false, "message", "Authentication required or repo not found / not owned"
+            ));
+            String token = repo.getUser().getToken();
+            if (token == null || token.isEmpty()) {
+                return ResponseEntity.badRequest().body(Map.of("success", false, "message", "GitHub token not found for user"));
+            }
+            gitHubService.setCurrentToken(token);
+
+            // éventuels dossiers de services fournis par la requête (pour scanner aussi ces chemins)
+            List<String> serviceDirs = new ArrayList<>();
+            if (request.getServices()!=null) {
+                for (Map<String,Object> s : request.getServices()) {
+                    Object wd = s.get("workingDirectory");
+                    if (wd!=null) serviceDirs.add(String.valueOf(wd));
+                }
+            } else if (request.getTechStackInfo()!=null && request.getTechStackInfo().getWorkingDirectory()!=null) {
+                serviceDirs.add(request.getTechStackInfo().getWorkingDirectory());
+            }
+
+            var existing = dockerComposeService.findComposeFiles(repo.getUrl(), token, serviceDirs);
+            if (!existing.isEmpty()) {
+                return ResponseEntity.ok(Map.of(
+                        "success", true,
+                        "hasCompose", true,
+                        "paths", existing
+                ));
+            }
+
+            String imageBase = repo.getFullName().toLowerCase(); // owner/repo
+            String preview = dockerComposeService.buildPreviewOrThrow(
+                    repo.getUrl(), token, repo.getDefaultBranch(), imageBase
+            );
+
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "hasCompose", false,
+                    "suggestedPath", "docker-compose.yml",
+                    "composePreview", preview
+            ));
+
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body(Map.of("success", false, "message", e.getMessage()));
+        }
+    }
+
+    // =====================================================================================
+// D) COMPOSE PROD — APPLY (push le compose si absent)
+// =====================================================================================
+@PostMapping("/compose/prod/apply")
+@Transactional
+public ResponseEntity<?> applyComposeProd(@RequestParam(value="path", required=false) String path,
+                                          @RequestBody(required=false) WorkflowGenerationRequest request,
                                           Authentication authentication) {
+    try {
+        var repo = requireAuthAndRepo(authentication, request!=null?request.getRepoId():null);
+        if (repo == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
+                "success", false, "message", "Authentication required or repo not found / not owned"
+        ));
+        String token = repo.getUser().getToken();
+        if (token == null || token.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "GitHub token not found for user"));
+        }
+        gitHubService.setCurrentToken(token);
+
+        // déjà présent quelque part ?
+        var existing = dockerComposeService.findComposeFiles(repo.getUrl(), token, null);
+        if (!existing.isEmpty()) {
+            // ✅ NOUVEAU: Historiser les fichiers compose EXISTANTS détectés
+            for (String existingPath : existing) {
+                try {
+                    String existingContent = gitHubService.getFileContent(repo.getUrl(), token, existingPath);
+                    if (existingContent != null) {
+                        // Déterminer le mode selon la requête
+                        DockerComposeHistory.Mode mode = (request != null && request.getServices() != null && !request.getServices().isEmpty()) 
+                            ? DockerComposeHistory.Mode.MULTI 
+                            : DockerComposeHistory.Mode.SINGLE;
+                        
+                        // Extraire les noms de services si possible (optionnel)
+                        Collection<String> serviceNames = extractServiceNamesFromRequest(request);
+                        
+                        dockerComposeHistoryService.recordExisting(repo, existingPath, existingContent, mode, serviceNames);
+                    }
+                } catch (Exception e) {
+                    System.err.println("Erreur lors de l'historisation du compose existant " + existingPath + ": " + e.getMessage());
+                }
+            }
+            
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "message", "Compose already present — nothing to apply",
+                    "paths", existing
+            ));
+        }
+
+        String imageBase = repo.getFullName().toLowerCase();
+        String composeYaml = dockerComposeService.buildPreviewOrThrow(
+                repo.getUrl(), token, repo.getDefaultBranch(), imageBase
+        );
+
+        String filePath = (path==null || path.isBlank()) ? "docker-compose.yml" : path;
+        GitHubService.PushResult pr = gitHubService.pushWorkflowToGitHub(
+                token, repo.getFullName(), repo.getDefaultBranch(),
+                filePath, composeYaml,
+                GitHubService.FileHandlingStrategy.UPDATE_IF_EXISTS
+        );
+
+        // ✅ NOUVEAU: Historiser le compose GÉNÉRÉ après push réussi
+        if (pr != null) {
+            // Déterminer le mode selon la requête
+            DockerComposeHistory.Mode mode = (request != null && request.getServices() != null && !request.getServices().isEmpty()) 
+                ? DockerComposeHistory.Mode.MULTI 
+                : DockerComposeHistory.Mode.SINGLE;
+            
+            // Extraire les noms de services si possible
+            Collection<String> serviceNames = extractServiceNamesFromRequest(request);
+            
+            dockerComposeHistoryService.recordGenerated(repo, filePath, composeYaml, mode, serviceNames, pr);
+        }
+
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "message", pr.getMessage(),
+                "commitHash", pr.getCommitHash(),
+                "filePath", pr.getFilePath()
+        ));
+
+    } catch (IOException e) {
+        return ResponseEntity.internalServerError().body(Map.of("success", false, "message", "IO Error: " + e.getMessage()));
+    } catch (Exception e) {
+        return ResponseEntity.internalServerError().body(Map.of("success", false, "message", e.getMessage()));
+    }
+}
+
+// ✅ NOUVEAU: Méthode helper pour extraire les noms de services de la requête
+private Collection<String> extractServiceNamesFromRequest(WorkflowGenerationRequest request) {
+    if (request == null) return null;
+    
+    List<String> serviceNames = new ArrayList<>();
+    
+    // Mode MULTI : extraire des services
+    if (request.getServices() != null && !request.getServices().isEmpty()) {
+        for (Map<String, Object> service : request.getServices()) {
+            // Essayer d'extraire un nom de service depuis workingDirectory ou un champ "name"
+            Object workingDir = service.get("workingDirectory");
+            Object name = service.get("name");
+            Object serviceName = service.get("serviceName");
+            
+            if (serviceName != null) {
+                serviceNames.add(serviceName.toString());
+            } else if (name != null) {
+                serviceNames.add(name.toString());
+            } else if (workingDir != null && !workingDir.toString().equals(".")) {
+                // Utiliser le dernier segment du workingDirectory comme nom de service
+                String dir = workingDir.toString();
+                String[] parts = dir.split("/");
+                serviceNames.add(parts[parts.length - 1]);
+            }
+        }
+    }
+    // Mode SINGLE : nom basé sur le repo ou workingDirectory
+    else if (request.getTechStackInfo() != null) {
+        String workingDir = request.getTechStackInfo().getWorkingDirectory();
+        if (workingDir != null && !workingDir.equals(".")) {
+            String[] parts = workingDir.split("/");
+            serviceNames.add(parts[parts.length - 1]);
+        } else {
+            // Utiliser le nom du repo comme nom de service par défaut
+            // Note: il faudrait passer le repo en paramètre pour obtenir son nom
+            serviceNames.add("app"); // nom générique par défaut
+        }
+    }
+    
+    return serviceNames.isEmpty() ? null : serviceNames;
+}
+    // =====================================================================================
+    // E) GENERATE CI (push) — SINGLE ou MULTI
+    //     
+    // =====================================================================================
+    @PostMapping("/generate")
+    @Transactional
+    public ResponseEntity<?> generateAndPushWorkflow(@RequestBody WorkflowGenerationRequest request,
+                                                     Authentication authentication) {
         try {
             var repo = requireAuthAndRepo(authentication, request.getRepoId());
             if (repo == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
@@ -211,237 +407,170 @@ public class CiWorkflowController {
             }
             gitHubService.setCurrentToken(token);
 
-            StackAnalysis info = request.getTechStackInfo();
-            if (info == null) return ResponseEntity.badRequest().body(Map.of("success", false, "message", "TechStackInfo is null"));
-
             WorkflowGenerationRequest.DockerOptions docker = request.getDocker();
-            if (docker == null || !docker.isGenerateCompose()) {
-                return ResponseEntity.badRequest().body(Map.of("success", false, "message", "Docker compose generation not requested"));
+            if (docker == null) docker = new WorkflowGenerationRequest.DockerOptions();
+
+            // -------- MODE MULTI
+            if (request.getServices() != null && !request.getServices().isEmpty()) {
+                List<Map<String, Object>> results = new ArrayList<>();
+
+                int index = 0;
+                for (Map<String,Object> svc : request.getServices()) {
+                    StackAnalysis info = StackAnalysis.fromMap(svc);
+                    if (info == null) continue;
+
+                    ContainerPlan containerPlan = containerizationService.plan(
+                            repo.getUrl(), token,
+                            (docker.getImageNameOverride() == null || docker.getImageNameOverride().isBlank())
+                                    ? repo.getFullName() : docker.getImageNameOverride(),
+                            info, docker.getImageNameOverride(), docker.getRegistry()
+                    );
+
+                    if (containerPlan.isShouldGenerateDockerfile()) {
+                        return ResponseEntity.status(428).body(Map.of(
+                                "success", false,
+                                "message", "Dockerfile not applied yet for service: " + info.getWorkingDirectory(),
+                                "service", info.getWorkingDirectory()
+                        ));
+                    }
+
+                    String templatePath = templateService.getTemplatePath(info);
+
+                    Map<String, String> replacements = new HashMap<>();
+                    String workingDir = (info.getWorkingDirectory() == null || info.getWorkingDirectory().isBlank()) ? "." : info.getWorkingDirectory();
+                    replacements.put("workingDirectory", workingDir);
+
+                    String buildToolLower = (info.getBuildTool() == null) ? "" : info.getBuildTool().toLowerCase();
+                    if ("maven".equals(buildToolLower) || "gradle".equals(buildToolLower)) {
+                        replacements.put("javaVersion", (info.getJavaVersion() != null && !info.getJavaVersion().isBlank())
+                                ? info.getJavaVersion() : "17");
+                    } else if ("npm".equals(buildToolLower)) {
+                        String nodeVersion = null;
+                        if (info.getProjectDetails() != null) {
+                            Object v = info.getProjectDetails().get("nodeVersion");
+                            nodeVersion = (v != null) ? v.toString() : null;
+                        }
+                        replacements.put("nodeVersion", resolveNodeVersionForActions(nodeVersion));
+                    }
+
+                    replacements.putAll(containerPlan.placeholders());
+
+                    String content = templateRenderer.renderTemplate(templatePath, replacements);
+
+                    // nom unique par service
+                    String fileName = "ci-" + (info.getWorkingDirectory() != null ? info.getWorkingDirectory().replace("/", "-") : "service-" + index) + ".yml";
+                    String filePath = ".github/workflows/" + fileName;
+
+                    try { gitHubService.getUserInfo(token); } catch (Exception e) {
+                        return ResponseEntity.badRequest().body(Map.of("success", false, "message", "GitHub connection failed: " + e.getMessage()));
+                    }
+
+                    GitHubService.PushResult pr = gitHubService.pushWorkflowToGitHub(
+                            token, repo.getFullName(), repo.getDefaultBranch(), filePath, content,
+                            GitHubService.FileHandlingStrategy.valueOf(request.getFileHandlingStrategy().name())
+                    );
+
+                    if (pr.getCommitHash() != null) {
+                        CiWorkflow workflow = workflowService.saveWorkflowAfterPush(repo, content, pr.getCommitHash());
+                        System.out.println("Workflow MULTI sauvegardé en base avec ID: " + workflow.getCiWorkflowId());
+                    }
+
+                    results.add(Map.of(
+                            "service", info.getWorkingDirectory(),
+                            "filePath", filePath,
+                            "commitHash", pr.getCommitHash()
+                    ));
+                    index++;
+                }
+
+                return ResponseEntity.ok(Map.of(
+                        "success", true,
+                        "mode", "multi",
+                        "workflows", results
+                ));
             }
 
-            var composePlan = containerizationService.planComposeForDev(info);
-            if (composePlan == null || !composePlan.shouldGenerateCompose) {
-                return ResponseEntity.ok(Map.of("success", true, "message", "No compose file needed or Spring+DB not detected"));
+            // -------- MODE SINGLE
+            StackAnalysis info = request.getTechStackInfo();
+            if (info == null) {
+                return ResponseEntity.badRequest().body(Map.of("success", false, "message", "TechStackInfo is null in request"));
             }
 
-            containerizationWriter.ensureCompose(
-                    token, repo.getFullName(), repo.getDefaultBranch(),
-                    composePlan,
-                    docker.getComposeStrategy() != null ? docker.getComposeStrategy()
-                                                        : GitHubService.FileHandlingStrategy.UPDATE_IF_EXISTS
+            ContainerPlan containerPlan = containerizationService.plan(
+                    repo.getUrl(), token,
+                    (docker.getImageNameOverride() == null || docker.getImageNameOverride().isBlank())
+                            ? repo.getFullName() : docker.getImageNameOverride(),
+                    info, docker.getImageNameOverride(), docker.getRegistry()
             );
 
-            return ResponseEntity.ok(Map.of("success", true, "message", "docker-compose.dev.yml generated & pushed",
-                    "composePath", composePlan.composePath));
-
-        } catch (IOException e) {
-            return ResponseEntity.internalServerError().body(Map.of("success", false, "message", "IO Error: " + e.getMessage()));
-        } catch (Exception e) {
-            return ResponseEntity.internalServerError().body(Map.of("success", false, "message", e.getMessage()));
-        }
-    }
-
-   // =====================================================================================
-// D) GENERATE CI (push) — SINGLE ou MULTI
-// =====================================================================================
-@PostMapping("/generate")
-@Transactional
-public ResponseEntity<?> generateAndPushWorkflow(@RequestBody WorkflowGenerationRequest request,
-                                                 Authentication authentication) {
-    try {
-        var repo = requireAuthAndRepo(authentication, request.getRepoId());
-        if (repo == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
-                "success", false, "message", "Authentication required or repo not found / not owned"
-        ));
-
-        String token = repo.getUser().getToken();
-        if (token == null || token.isEmpty()) {
-            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "GitHub token not found for user"));
-        }
-        gitHubService.setCurrentToken(token);
-
-        WorkflowGenerationRequest.DockerOptions docker = request.getDocker();
-        if (docker == null) docker = new WorkflowGenerationRequest.DockerOptions();
-
-        // =============================================
-        // MODE MULTI (plusieurs services)
-        // =============================================
-        if (request.getServices() != null && !request.getServices().isEmpty()) {
-            List<Map<String, Object>> results = new ArrayList<>();
-
-            int index = 0;
-            for (Map<String,Object> svc : request.getServices()) {
-                StackAnalysis info = StackAnalysis.fromMap(svc); // helper à coder dans StackAnalysis
-                if (info == null) continue;
-
-                // plan containerisation pour vérifier dockerfile
-                ContainerPlan containerPlan = containerizationService.plan(
-                        repo.getUrl(), token,
-                        (docker.getImageNameOverride() == null || docker.getImageNameOverride().isBlank())
-                                ? repo.getFullName() : docker.getImageNameOverride(),
-                        info, docker.getImageNameOverride(), docker.getRegistry()
-                );
-
-                if (containerPlan.isShouldGenerateDockerfile()) {
-                    return ResponseEntity.status(428).body(Map.of(
-                            "success", false,
-                            "message", "Dockerfile not applied yet for service: " + info.getWorkingDirectory(),
-                            "service", info.getWorkingDirectory()
-                    ));
-                }
-
-                String templatePath = templateService.getTemplatePath(info);
-
-                Map<String, String> replacements = new HashMap<>();
-                String workingDir = (info.getWorkingDirectory() == null || info.getWorkingDirectory().isBlank()) ? "." : info.getWorkingDirectory();
-                replacements.put("workingDirectory", workingDir);
-
-                String buildToolLower = (info.getBuildTool() == null) ? "" : info.getBuildTool().toLowerCase();
-                if ("maven".equals(buildToolLower) || "gradle".equals(buildToolLower)) {
-                    replacements.put("javaVersion", (info.getJavaVersion() != null && !info.getJavaVersion().isBlank())
-                            ? info.getJavaVersion() : "17");
-                } else if ("npm".equals(buildToolLower)) {
-                    String nodeVersion = null;
-                    if (info.getProjectDetails() != null) {
-                        Object v = info.getProjectDetails().get("nodeVersion");
-                        nodeVersion = (v != null) ? v.toString() : null;
-                    }
-                    replacements.put("nodeVersion", resolveNodeVersionForActions(nodeVersion));
-                }
-
-                replacements.putAll(containerPlan.placeholders());
-
-                String content = templateRenderer.renderTemplate(templatePath, replacements);
-
-                // nom unique par service
-                String fileName = "ci-" + (info.getWorkingDirectory() != null ? info.getWorkingDirectory().replace("/", "-") : "service-" + index) + ".yml";
-                String filePath = ".github/workflows/" + fileName;
-
-                try { gitHubService.getUserInfo(token); } catch (Exception e) {
-                    return ResponseEntity.badRequest().body(Map.of("success", false, "message", "GitHub connection failed: " + e.getMessage()));
-                }
-
-                GitHubService.PushResult pr = gitHubService.pushWorkflowToGitHub(
-                        token, repo.getFullName(), repo.getDefaultBranch(), filePath, content,
-                        GitHubService.FileHandlingStrategy.valueOf(request.getFileHandlingStrategy().name())
-                );
-
-                if (pr.getCommitHash() != null) {
-                    CiWorkflow workflow = workflowService.saveWorkflowAfterPush(repo, content, pr.getCommitHash());
-                    System.out.println("Workflow MULTI sauvegardé en base avec ID: " + workflow.getCiWorkflowId());
-                }
-
-                results.add(Map.of(
-                        "service", info.getWorkingDirectory(),
-                        "filePath", filePath,
-                        "commitHash", pr.getCommitHash()
+            if (containerPlan.isShouldGenerateDockerfile()) {
+                return ResponseEntity.status(428).body(Map.of(
+                        "success", false,
+                        "message", "Dockerfile not applied yet. Preview + apply the Dockerfile before generating CI.",
+                        "hintPreview", "/api/workflows/docker/preview",
+                        "hintApply", "/api/workflows/dockerfile/apply"
                 ));
-                index++;
+            }
+
+            String templatePath = templateService.getTemplatePath(info);
+
+            Map<String, String> replacements = new HashMap<>();
+            String workingDir = (info.getWorkingDirectory() == null || info.getWorkingDirectory().isBlank()) ? "." : info.getWorkingDirectory();
+            replacements.put("workingDirectory", workingDir);
+
+            String buildToolLower = (info.getBuildTool() == null) ? "" : info.getBuildTool().toLowerCase();
+            if ("maven".equals(buildToolLower) || "gradle".equals(buildToolLower)) {
+                replacements.put("javaVersion", (info.getJavaVersion() != null && !info.getJavaVersion().isBlank())
+                        ? info.getJavaVersion() : "17");
+            } else if ("npm".equals(buildToolLower)) {
+                String nodeVersion = null;
+                if (info.getProjectDetails() != null) {
+                    Object v = info.getProjectDetails().get("nodeVersion");
+                    nodeVersion = (v != null) ? v.toString() : null;
+                }
+                replacements.put("nodeVersion", resolveNodeVersionForActions(nodeVersion));
+            }
+
+            replacements.putAll(containerPlan.placeholders());
+
+            String content = templateRenderer.renderTemplate(templatePath, replacements);
+
+            String fileName = switch (buildToolLower) {
+                case "maven" -> "maven-ci.yml";
+                case "gradle" -> "gradle-ci.yml";
+                case "npm" -> "npm-ci.yml";
+                default -> "ci.yml";
+            };
+            String filePath = ".github/workflows/" + fileName;
+
+            try { gitHubService.getUserInfo(token); } catch (Exception e) {
+                return ResponseEntity.badRequest().body(Map.of("success", false, "message", "GitHub connection failed: " + e.getMessage()));
+            }
+
+            GitHubService.PushResult result = gitHubService.pushWorkflowToGitHub(
+                    token, repo.getFullName(), repo.getDefaultBranch(), filePath, content,
+                    GitHubService.FileHandlingStrategy.valueOf(request.getFileHandlingStrategy().name())
+            );
+
+            if (result.getCommitHash() != null) {
+                CiWorkflow workflow = workflowService.saveWorkflowAfterPush(repo, content, result.getCommitHash());
+                System.out.println("Workflow SINGLE sauvegardé en base avec ID: " + workflow.getCiWorkflowId());
             }
 
             return ResponseEntity.ok(Map.of(
                     "success", true,
-                    "mode", "multi",
-                    "workflows", results
+                    "mode", "single",
+                    "message", result.getMessage(),
+                    "commitHash", result.getCommitHash(),
+                    "filePath", result.getFilePath()
             ));
+
+        } catch (IOException e) {
+            return ResponseEntity.internalServerError().body(Map.of("success", false, "message", "IO Error: " + e.getMessage()));
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body(Map.of("success", false, "message", "Unexpected error: " + e.getMessage()));
         }
-
-        // =============================================
-        // MODE SINGLE (inchangé)
-        // =============================================
-        StackAnalysis info = request.getTechStackInfo();
-        if (info == null) {
-            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "TechStackInfo is null in request"));
-        }
-
-        ContainerPlan containerPlan = containerizationService.plan(
-                repo.getUrl(), token,
-                (docker.getImageNameOverride() == null || docker.getImageNameOverride().isBlank())
-                        ? repo.getFullName() : docker.getImageNameOverride(),
-                info, docker.getImageNameOverride(), docker.getRegistry()
-        );
-
-        if (containerPlan.isShouldGenerateDockerfile()) {
-            return ResponseEntity.status(428).body(Map.of(
-                    "success", false,
-                    "message", "Dockerfile not applied yet. Preview + apply the Dockerfile before generating CI.",
-                    "hintPreview", "/api/workflows/docker/preview",
-                    "hintApply", "/api/workflows/dockerfile/apply"
-            ));
-        }
-
-        if (docker.isGenerateCompose()) {
-            ComposePlan cp = containerizationService.planComposeForDev(info);
-            if (cp != null && cp.shouldGenerateCompose && !containerPlan.isHasCompose()) {
-                return ResponseEntity.status(428).body(Map.of(
-                        "success", false,
-                        "message", "docker-compose.dev.yml not applied yet. Preview + apply compose before generating CI.",
-                        "hintPreview", "/api/workflows/docker/preview",
-                        "hintApply", "/api/workflows/compose/apply"
-                ));
-            }
-        }
-
-        String templatePath = templateService.getTemplatePath(info);
-
-        Map<String, String> replacements = new HashMap<>();
-        String workingDir = (info.getWorkingDirectory() == null || info.getWorkingDirectory().isBlank()) ? "." : info.getWorkingDirectory();
-        replacements.put("workingDirectory", workingDir);
-
-        String buildToolLower = (info.getBuildTool() == null) ? "" : info.getBuildTool().toLowerCase();
-        if ("maven".equals(buildToolLower) || "gradle".equals(buildToolLower)) {
-            replacements.put("javaVersion", (info.getJavaVersion() != null && !info.getJavaVersion().isBlank())
-                    ? info.getJavaVersion() : "17");
-        } else if ("npm".equals(buildToolLower)) {
-            String nodeVersion = null;
-            if (info.getProjectDetails() != null) {
-                Object v = info.getProjectDetails().get("nodeVersion");
-                nodeVersion = (v != null) ? v.toString() : null;
-            }
-            replacements.put("nodeVersion", resolveNodeVersionForActions(nodeVersion));
-        }
-
-        replacements.putAll(containerPlan.placeholders());
-
-        String content = templateRenderer.renderTemplate(templatePath, replacements);
-
-        String fileName = switch (buildToolLower) {
-            case "maven" -> "maven-ci.yml";
-            case "gradle" -> "gradle-ci.yml";
-            case "npm" -> "npm-ci.yml";
-            default -> "ci.yml";
-        };
-        String filePath = ".github/workflows/" + fileName;
-
-        try { gitHubService.getUserInfo(token); } catch (Exception e) {
-            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "GitHub connection failed: " + e.getMessage()));
-        }
-
-        GitHubService.PushResult result = gitHubService.pushWorkflowToGitHub(
-                token, repo.getFullName(), repo.getDefaultBranch(), filePath, content,
-                GitHubService.FileHandlingStrategy.valueOf(request.getFileHandlingStrategy().name())
-        );
-
-        if (result.getCommitHash() != null) {
-            CiWorkflow workflow = workflowService.saveWorkflowAfterPush(repo, content, result.getCommitHash());
-            System.out.println("Workflow SINGLE sauvegardé en base avec ID: " + workflow.getCiWorkflowId());
-        }
-
-        return ResponseEntity.ok(Map.of(
-                "success", true,
-                "mode", "single",
-                "message", result.getMessage(),
-                "commitHash", result.getCommitHash(),
-                "filePath", result.getFilePath()
-        ));
-
-    } catch (IOException e) {
-        return ResponseEntity.internalServerError().body(Map.of("success", false, "message", "IO Error: " + e.getMessage()));
-    } catch (Exception e) {
-        return ResponseEntity.internalServerError().body(Map.of("success", false, "message", "Unexpected error: " + e.getMessage()));
     }
-}
-
 
     // ======================
     // Helpers (privés)
