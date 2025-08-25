@@ -4,6 +4,7 @@ import com.example.demo.model.Repo;
 import com.example.demo.repository.RepoRepository;
 import com.example.demo.service.CdWorkflowGenerationService;
 import com.example.demo.service.GitHubService;
+import com.example.demo.service.DeploymentUrlService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
@@ -20,6 +21,24 @@ public class CdWorkflowController {
     @Autowired private CdWorkflowGenerationService cdWorkflowGenerationService;
     @Autowired private GitHubService gitHubService;
     @Autowired private RepoRepository repoRepository;
+    @Autowired private DeploymentUrlService deploymentUrlService;
+    // GET LIVE URLS: Returns the live URLs for deployed services
+    @GetMapping("/live-urls")
+    public ResponseEntity<?> getLiveUrls(@RequestParam Long repoId, @RequestParam String vmHost, Authentication authentication) {
+        try {
+            Repo repo = requireAuthAndRepo(authentication, repoId);
+            if (repo == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
+                    "success", false, "message", "Authentication required or repo not found / not owned"
+            ));
+            var urls = deploymentUrlService.getLiveUrls(repo, vmHost);
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "urls", urls
+            ));
+        } catch (Exception e) {
+            return ResponseEntity.internalServerError().body(Map.of("success", false, "message", e.getMessage()));
+        }
+    }
 
     // PREVIEW: Generate the workflow YAML but do not push
     @PostMapping("/preview")
