@@ -10,6 +10,7 @@ import java.util.regex.Pattern;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
+import com.example.demo.dto.ServiceAnalysis;
 import com.example.demo.dto.StackAnalysis;
 
 @Service
@@ -21,6 +22,7 @@ public class StackDetectionService {
     /**
      * Analyse un repository GitHub pour détecter sa stack technique
      */
+    
     public StackAnalysis analyzeRepository(String repoUrl, String token, String defaultBranch) {
         List<Map<String, Object>> files = gitHubService.getRepositoryContents(repoUrl, token, null);
 
@@ -29,6 +31,7 @@ public class StackDetectionService {
         String javaVersion = detectJavaVersion(repoUrl, token, detectedStack.stackType, detectedStack.workingDirectory);
         String buildTool = detectBuildTool(detectedStack.stackType);
         String language = detectLanguage(detectedStack.stackType);
+        
 
         StackAnalysis analysis = new StackAnalysis(
                 detectedStack.stackType,
@@ -43,14 +46,59 @@ public class StackDetectionService {
         Map<String, Object> projectDetails = analyzeProjectDetails(repoUrl, token, detectedStack.stackType, detectedStack.workingDirectory);
         analysis.setProjectDetails(projectDetails);
 
+
         // Infos Docker/DB
         String databaseType = detectDatabaseTypeFromStack(repoUrl, token, detectedStack.stackType, detectedStack.workingDirectory);
         String databaseName = extractDatabaseName(repoUrl, token, detectedStack.workingDirectory);
         analysis.setDatabaseType(databaseType);
         analysis.setDatabaseName(databaseName);
 
+        if ("NODE_JS".equals(detectedStack.stackType)) {
+            String raw = projectDetails != null ? (String) projectDetails.get("nodeVersion") : null;
+            if (raw == null || "Latest".equalsIgnoreCase(raw)) {
+                 String fromFiles = tryReadNodeVersionFiles(repoUrl, token, detectedStack.workingDirectory);
+                if (fromFiles != null && !fromFiles.isBlank()) {
+                    // on garde la version dans projectDetails
+                    projectDetails.put("nodeVersion", fromFiles);
+                 }
+            }
+            
+         }
+
+
         return analysis;
     }
+    // à l'intérieur de StackDetectionService
+public List<ServiceAnalysis> analyzeAllServices(String repoUrl, String token) {
+  List<Map<String, Object>> root = gitHubService.getRepositoryContents(repoUrl, token, null);
+  List<DetectedStack> detected = detectAllServices(root, repoUrl, token, "");
+
+  List<ServiceAnalysis> out = new ArrayList<>();
+  int i = 0;
+  for (DetectedStack d : detected) {
+    String buildTool = detectBuildTool(d.stackType).toLowerCase(); // "maven"/"gradle"/"npm"/"generic"
+    String lang = detectLanguage(d.stackType);
+    Map<String, Object> details = analyzeProjectDetails(repoUrl, token, d.stackType, d.workingDirectory);
+String javaVer = null;
+  if (d.stackType.contains("SPRING_BOOT")) {
+    javaVer = detectJavaVersion(repoUrl, token, d.stackType, d.workingDirectory);
+  }
+  String orchestrator="github-actions";
+    String prefix = d.stackType.contains("SPRING") ? "backend-" : ("NODE_JS".equals(d.stackType) ? "frontend-" : "service-");
+    out.add(new ServiceAnalysis(
+      prefix + (i++),
+      d.stackType,
+      d.workingDirectory,
+      buildTool,
+      lang,
+      details,
+      orchestrator,
+      javaVer
+    ));
+  }
+  return out;
+}
+
 
     /**
      * Génère une configuration de services structurée pour Docker
@@ -107,6 +155,14 @@ public class StackDetectionService {
         service.put("framework", detectDetailedFramework(detected, repoUrl, token));
         service.put("contextDir", detected.workingDirectory);
         service.put("buildTool", detectBuildTool(detected.stackType));
+
+        service.put("orchestrator","github-actions");
+        if (detected.stackType.contains("SPRING_BOOT")) {
+        String jv = detectJavaVersion(repoUrl, token, detected.stackType, detected.workingDirectory);
+        service.put("javaVersion", jv); // ex: "17"
+    } else {
+        service.put("javaVersion", null); // pour Node/others
+    }
 
         // Build / Runtime / Env
         Map<String, Object> artifact = createArtifactConfig(detected, repoUrl, token);
@@ -646,7 +702,27 @@ public class StackDetectionService {
         );
     }
 
-  
+    
+
+    private String tryReadNodeVersionFiles(String repoUrl, String token, String wd) {
+        String base = ".".equals(wd) ? "" : wd.replaceFirst("^\\./", "") + "/";
+        for (String f : List.of(".nvmrc", ".node-version")) {
+            try {
+                String v = gitHubService.getFileContent(repoUrl, token, base + f);
+                if (v != null && !v.trim().isEmpty()) return v.trim().replaceFirst("^v", "");
+            } catch (Exception ignore) { }
+        }
+        return null;
+    }
+    
+    private String normalizeNodeVersion(String raw) {
+        if (raw == null || raw.isBlank()) return "20";
+        var m = java.util.regex.Pattern.compile("(\\d+)(?:\\.\\d+)?").matcher(raw.replace("v",""));
+        return m.find() ? m.group(1) : "20";
+    }
+    
+
+    
 
     private static class DetectedStack {
         String stackType;

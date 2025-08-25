@@ -33,7 +33,20 @@ public class StackAnalysis {
 
     public StackAnalysis() {}
 
-    // --- Getters/Setters ---
+  @SuppressWarnings("unchecked")
+public static StackAnalysis fromMap(Map<String,Object> svc) {
+    if (svc == null) return null;
+    StackAnalysis sa = new StackAnalysis();
+    sa.setStackType((String) svc.get("stackType"));
+    sa.setWorkingDirectory((String) svc.get("workingDirectory"));
+    sa.setBuildTool((String) svc.get("buildTool"));
+    sa.setLanguage((String) svc.get("language"));
+    sa.setJavaVersion((String) svc.get("javaVersion"));
+    sa.setOrchestrator((String) svc.get("orchestrator"));
+    sa.setProjectDetails((Map<String,Object>) svc.get("projectDetails"));
+    return sa;
+}
+
     public String getStackType() { return stackType; }
     public void setStackType(String stackType) { this.stackType = stackType; }
 
