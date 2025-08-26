@@ -727,9 +727,11 @@ public class StackDetectionService {
         return m.find() ? m.group(1) : "20";
     }
 
-    public List<String> getAllRepositoryFiles(String repoUrl, String token, String branch) {
-        return gitHubService.getAllRepositoryFiles(repoUrl, token, branch);
-    }
+
+    
+  public List<String> getAllRepositoryFiles(String repoUrl, String token, String branch) {  
+    return gitHubService.getAllRepositoryFiles(repoUrl, token, branch);  
+}
 
     private static class DetectedStack {
         String stackType;

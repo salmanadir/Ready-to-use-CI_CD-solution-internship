@@ -1,4 +1,4 @@
-// src/App.jsx
+
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
@@ -7,6 +7,8 @@ import Dashboard from './pages/Dashboard/Dashboard';
 import CDGeneration from './pages/Dashboard/cdGeneration';
 import AuthCallback from './pages/AuthCallback/Authcallback';
 import ProtectedRoute from './components/ProtectedRoute';
+import RepoAnalysisPage from './pages/RepoAnalysis/RepoAnalysisPage';
+import RepoSelectionPage from './pages/RepoSelection/RepoSelectionPage';
 import './App.css'; 
 
 function App() {
@@ -27,6 +29,22 @@ function App() {
                 <Dashboard />
               </ProtectedRoute>
             } 
+          />
+          <Route  
+          path="/dashboard/select-repo"  
+          element={  
+              <ProtectedRoute>  
+                <RepoSelectionPage />  
+              </ProtectedRoute>  
+         }  
+          />
+          <Route   
+          path="/analysis/:repoId"   
+          element={  
+              <ProtectedRoute>  
+                <RepoAnalysisPage />  
+              </ProtectedRoute>  
+        }   
           />
           <Route
             path="/dashboard/cd-generation"

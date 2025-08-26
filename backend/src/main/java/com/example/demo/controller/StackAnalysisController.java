@@ -2,7 +2,11 @@ package com.example.demo.controller;
   
 import java.util.Arrays;  
 import java.util.HashMap;  
+<<<<<<< HEAD
 import java.util.List;  
+=======
+import java.util.List;
+>>>>>>> e065ec4 (feat(api,frontend): add repo-files endpoint; improve analysis & selection pages)
 import java.util.Map;  
   
 import org.springframework.beans.factory.annotation.Autowired;  
@@ -41,8 +45,13 @@ public class StackAnalysisController {
             Repo repo = repoRepository.findById(repoId)  
                     .orElseThrow(() -> new RuntimeException("Repository not found"));  
   
+<<<<<<< HEAD
             String repoUrl = repo.getUrl();  
             String token = repo.getUser().getToken();  
+=======
+            String repoUrl   = repo.getUrl();  
+            String token     = repo.getUser().getToken();  
+>>>>>>> e065ec4 (feat(api,frontend): add repo-files endpoint; improve analysis & selection pages)
             String defBranch = repo.getDefaultBranch();  
   
             var services = stackDetectionService.analyzeAllServices(repoUrl, token);  
@@ -54,6 +63,10 @@ public class StackAnalysisController {
                 return ResponseEntity.ok(resp);  
             }  
   
+<<<<<<< HEAD
+=======
+           
+>>>>>>> e065ec4 (feat(api,frontend): add repo-files endpoint; improve analysis & selection pages)
             String primaryServiceId = services.stream()  
                     .filter(s -> s.getStackType().contains("SPRING_BOOT"))  
                     .map(s -> s.getId())  
@@ -66,16 +79,31 @@ public class StackAnalysisController {
             payload.put("primaryServiceId", primaryServiceId);  
             payload.put("defaultBranch", defBranch);  
   
+<<<<<<< HEAD
             if (services.size() == 1) {  
                 payload.put("mode", "single");  
                 StackAnalysis single = stackDetectionService.analyzeRepository(repoUrl, token, defBranch);  
                 payload.put("analysis", single);  
+=======
+           
+            if (services.size() == 1) {  
+                payload.put("mode", "single");  
+  
+                
+                StackAnalysis single = stackDetectionService.analyzeRepository(repoUrl, token, defBranch);  
+                payload.put("analysis", single);   
+  
+>>>>>>> e065ec4 (feat(api,frontend): add repo-files endpoint; improve analysis & selection pages)
                 payload.put("message", "Single-service repository analyzed successfully");  
             } else {  
                 payload.put("mode", "multi");  
                 payload.put("message", "Multi-service repository analyzed successfully");  
             }  
   
+<<<<<<< HEAD
+=======
+            
+>>>>>>> e065ec4 (feat(api,frontend): add repo-files endpoint; improve analysis & selection pages)
             String detailsJson = objectMapper.writeValueAsString(payload);  
             repo.setTechnicalDetails(detailsJson);  
             repoRepository.save(repo);  
@@ -90,6 +118,7 @@ public class StackAnalysisController {
         }  
     }  
   
+<<<<<<< HEAD
     @PutMapping("/repository/{repoId}/update-parameters")  
     public ResponseEntity<Map<String, Object>> updateStackParameters(  
             @PathVariable Long repoId,  
@@ -254,6 +283,8 @@ public class StackAnalysisController {
     }  
   
     // Autres méthodes existantes...  
+=======
+>>>>>>> e065ec4 (feat(api,frontend): add repo-files endpoint; improve analysis & selection pages)
     @GetMapping("/repository/{repoId}")  
     public ResponseEntity<Map<String, Object>> getRepositoryAnalysis(@PathVariable Long repoId) {  
         try {  
@@ -282,12 +313,42 @@ public class StackAnalysisController {
         }  
     }  
   
+<<<<<<< HEAD
     @GetMapping("/repository/{repoId}/all-files")  
     public ResponseEntity<Map<String, Object>> getAllRepositoryFiles(@PathVariable Long repoId) {  
+=======
+    @PostMapping("/generate-services/{repoId}")    
+    public ResponseEntity<Map<String, Object>> generateServices(@PathVariable Long repoId) {    
+        try {    
+            Repo repo = repoRepository.findById(repoId)    
+                .orElseThrow(() -> new RuntimeException("Repository not found"));    
+  
+            Map<String, Object> services = stackDetectionService.generateStructuredServices(    
+                repo.getUrl(),    
+                repo.getUser().getToken(),    
+                repo.getDefaultBranch()    
+            );    
+  
+            return ResponseEntity.ok(services);    
+        } catch (Exception e) {    
+            Map<String, Object> errorResponse = new HashMap<>();    
+            errorResponse.put("success", false);    
+            errorResponse.put("message", "Error generating services: " + e.getMessage());    
+            return ResponseEntity.badRequest().body(errorResponse);    
+        }    
+    }  
+  
+    @PutMapping("/repository/{repoId}/update-parameters")  
+    public ResponseEntity<Map<String, Object>> updateStackParameters(  
+            @PathVariable Long repoId,  
+            @RequestBody Map<String, Object> updatedParameters) {  
+  
+>>>>>>> e065ec4 (feat(api,frontend): add repo-files endpoint; improve analysis & selection pages)
         try {  
             Repo repo = repoRepository.findById(repoId)  
                     .orElseThrow(() -> new RuntimeException("Repository not found"));  
   
+<<<<<<< HEAD
             List<String> allFiles = stackDetectionService.getAllRepositoryFiles(  
                     repo.getUrl(),  
                     repo.getUser().getToken(),  
@@ -302,13 +363,140 @@ public class StackAnalysisController {
                     "url", repo.getUrl(),  
                     "defaultBranch", repo.getDefaultBranch()  
             ));  
+=======
+            if (repo.getTechnicalDetails() == null || repo.getTechnicalDetails().isEmpty()) {  
+                Map<String, Object> errorResponse = new HashMap<>();  
+                errorResponse.put("success", false);  
+                errorResponse.put("message", "No analysis available. Please analyze the repository first.");  
+                return ResponseEntity.badRequest().body(errorResponse);  
+            }  
+  
+            StackAnalysis currentAnalysis = objectMapper.readValue(repo.getTechnicalDetails(), StackAnalysis.class);  
+  
+            validateParameters(currentAnalysis.getStackType(), updatedParameters);  
+  
+            if (updatedParameters.containsKey("javaVersion")) {  
+                currentAnalysis.setJavaVersion((String) updatedParameters.get("javaVersion"));  
+            }  
+            if (updatedParameters.containsKey("workingDirectory")) {  
+                currentAnalysis.setWorkingDirectory((String) updatedParameters.get("workingDirectory"));  
+            }  
+            if (updatedParameters.containsKey("orchestrator")) {  
+                currentAnalysis.setOrchestrator((String) updatedParameters.get("orchestrator"));  
+            }  
+              
+            if (updatedParameters.containsKey("nodeVersion")) {  
+                Map<String, Object> pd = currentAnalysis.getProjectDetails();  
+                if (pd == null) {  
+                    pd = new HashMap<>();  
+                    currentAnalysis.setProjectDetails(pd);  
+                }  
+                pd.put("nodeVersion", (String) updatedParameters.get("nodeVersion"));  
+            }  
+  
+            String updatedJson = objectMapper.writeValueAsString(currentAnalysis);  
+            repo.setTechnicalDetails(updatedJson);  
+            repoRepository.save(repo);  
+  
+            Map<String, Object> response = new HashMap<>();  
+            response.put("success", true);  
+            response.put("analysis", currentAnalysis);  
+            response.put("message", "Parameters updated successfully");  
+>>>>>>> e065ec4 (feat(api,frontend): add repo-files endpoint; improve analysis & selection pages)
   
             return ResponseEntity.ok(response);  
         } catch (Exception e) {  
             Map<String, Object> errorResponse = new HashMap<>();  
             errorResponse.put("success", false);  
+<<<<<<< HEAD
             errorResponse.put("message", "Error while retrieving all files: " + e.getMessage());  
             return ResponseEntity.badRequest().body(errorResponse);  
         }  
     }  
+=======
+            errorResponse.put("message", "Error while updating parameters: " + e.getMessage());  
+            return ResponseEntity.badRequest().body(errorResponse);  
+        }  
+    }  
+  
+    @GetMapping("/repository/{repoId}/all-files")    
+    public ResponseEntity<Map<String, Object>> getAllRepositoryFiles(@PathVariable Long repoId) {    
+        try {    
+            Repo repo = repoRepository.findById(repoId)    
+                    .orElseThrow(() -> new RuntimeException("Repository not found"));    
+  
+          
+            List<String> allFiles = stackDetectionService.getAllRepositoryFiles(    
+                repo.getUrl(),     
+                repo.getUser().getToken(),     
+                repo.getDefaultBranch()    
+            );    
+  
+            Map<String, Object> response = new HashMap<>();    
+            response.put("success", true);    
+            response.put("files", allFiles);    
+            response.put("repositoryInfo", Map.of(    
+                    "name", repo.getFullName(),    
+                    "url", repo.getUrl(),    
+                    "defaultBranch", repo.getDefaultBranch()    
+            ));    
+  
+            return ResponseEntity.ok(response);    
+        } catch (Exception e) {    
+            Map<String, Object> errorResponse = new HashMap<>();    
+            errorResponse.put("success", false);    
+            errorResponse.put("message", "Error while retrieving all files: " + e.getMessage());    
+            return ResponseEntity.badRequest().body(errorResponse);    
+        }    
+    }  
+  
+    @GetMapping("/repository/{repoId}/files")  
+    public ResponseEntity<Map<String, Object>> getRepositoryFiles(@PathVariable Long repoId) {  
+        try {  
+            Repo repo = repoRepository.findById(repoId)  
+                    .orElseThrow(() -> new RuntimeException("Repository not found"));  
+  
+            if (repo.getTechnicalDetails() != null && !repo.getTechnicalDetails().isEmpty()) {  
+                StackAnalysis analysis = objectMapper.readValue(repo.getTechnicalDetails(), StackAnalysis.class);  
+  
+                Map<String, Object> response = new HashMap<>();  
+                response.put("success", true);  
+                response.put("files", analysis.getFiles());  
+                response.put("repositoryInfo", Map.of(  
+                        "name", repo.getFullName(),  
+                        "url", repo.getUrl(),  
+                        "defaultBranch", repo.getDefaultBranch()  
+                ));  
+  
+                return ResponseEntity.ok(response);  
+            } else {  
+                Map<String, Object> errorResponse = new HashMap<>();  
+                errorResponse.put("success", false);  
+                errorResponse.put("message", "Repository not analyzed. Please analyze the repository first.");  
+                return ResponseEntity.badRequest().body(errorResponse);  
+            }  
+        } catch (Exception e) {  
+            Map<String, Object> errorResponse = new HashMap<>();  
+            errorResponse.put("success", false);  
+            errorResponse.put("message", "Error while retrieving files: " + e.getMessage());  
+            return ResponseEntity.badRequest().body(errorResponse);  
+        }  
+    }  
+  
+    private void validateParameters(String stackType, Map<String, Object> parameters) {  
+        if ("NODE_JS".equals(stackType) && parameters.containsKey("javaVersion")) {  
+            throw new RuntimeException("Java version is not applicable for a Node.js project");  
+        }  
+  
+        String javaVersion = (String) parameters.get("javaVersion");  
+        if (javaVersion != null && !Arrays.asList("8", "11", "17", "21").contains(javaVersion)) {  
+            throw new RuntimeException("Unsupported Java version: " + javaVersion);  
+        }  
+  
+        String orchestrator = (String) parameters.get("orchestrator");  
+        if (orchestrator != null && !Arrays.asList("github-actions", "gitlab-ci", "jenkins").contains(orchestrator)) {  
+            throw new RuntimeException("Unsupported orchestrator: " + orchestrator);  
+        }  
+    }  
+>>>>>>> e065ec4 (feat(api,frontend): add repo-files endpoint; improve analysis & selection pages)
 }
