@@ -1,0 +1,75 @@
+/* Carte */
+.repo-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 15px 18px;
+  /* border: 1px solid #444; */
+  background-color: #030712;
+  color: #fff;
+  font-family: Arial, sans-serif;
+ border-bottom: 0.2px solid rgba(255, 255, 255, 0.4); 
+  /* margin-bottom: 50px; */
+  max-width: 900px;
+  width: min(100%, 900px);
+  margin: 20px auto;
+  /* border-radius: 8px; */
+}
+
+/* Zone infos */
+.repo-info { flex: 1; }
+
+/* Nom + type sur une ligne (wrap si manque d'espace) */
+.repo-header {
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  flex-wrap: wrap;
+}
+
+.repo-title {
+  margin: 0;
+  font-size: clamp(16px, 2vw, 18px);
+  font-weight: bold;
+  color: #3399ff;
+}
+
+.repo-title a {
+  color: inherit;
+  text-decoration: none;
+  cursor: pointer;
+}
+.repo-title a:hover { text-decoration: underline; }
+
+/* Badge type */
+.repo-type {
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-weight: bold;
+  font-size: clamp(11px, 1.6vw, 14px);
+}
+.repo-type.public { background-color: #4caf50; color: #fff; }
+.repo-type.private { background-color: #4caf50; color: #fff; }
+
+/* Détails (langage, update) */
+.repo-details {
+  display: flex;
+  gap: 15px;
+  font-size: clamp(12px, 1.7vw, 14px);
+  color: #ccc;
+  margin-top: 6px;
+}
+
+.repo-techno { display: flex; align-items: center; gap: 6px; }
+.dot { width: 8px; height: 8px; background: orange; border-radius: 50%; display: inline-block; }
+.repo-update { color: #888; }
+
+/* Bouton à droite */
+.select-button { margin: 0; }
+
+/* Mobile : bouton en dessous et en full width */
+@media (max-width: 640px) {
+  .repo-card { flex-direction: column; align-items: stretch; }
+  .select-button { width: 100%; }
+}

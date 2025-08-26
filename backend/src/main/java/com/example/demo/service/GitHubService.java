@@ -387,14 +387,14 @@ private PushResult createFileViaRestApi(String repoFullName, String owner, Strin
         return headers;
     }
 
-    // Dans GitHubService
+    
 public static class PushResult {
     private final String commitHash;
     private final String filePath;
     private final PushAction action;
     private final String message;
-    private final String commitHtmlUrl;   // URL web du commit (pratique à afficher)
-    private final String previousSha;     // SHA du blob/fichier avant update (null si création)
+    private final String commitHtmlUrl;  
+    private final String previousSha;     
 
     public PushResult(String commitHash, String filePath, PushAction action, String message) {
         this(commitHash, filePath, action, message, null, null);
@@ -422,7 +422,7 @@ public static class PushResult {
 
     public enum PushAction { CREATED, UPDATED, SKIPPED }
     public enum FileHandlingStrategy { UPDATE_IF_EXISTS, CREATE_NEW_ALWAYS, FAIL_IF_EXISTS }
-    // Lecture "safe" (Optional) — idéal avant de décider EXISTING vs GENERATED
+   
 public Optional<String> tryGetFileContent(String repoUrl, String token, String filePath) {
     try {
         return Optional.ofNullable(getFileContent(repoUrl, token, filePath));
@@ -431,7 +431,7 @@ public Optional<String> tryGetFileContent(String repoUrl, String token, String f
     }
 }
 
-/** Liste des fichiers compose connus à la racine (docker-compose.yml/.yaml, compose.yaml). */
+
 public List<String> findComposeCandidatesAtRoot(String repoUrl, String token) {
     List<String> out = new ArrayList<>();
     try {
@@ -447,12 +447,12 @@ public List<String> findComposeCandidatesAtRoot(String repoUrl, String token) {
     return out;
 }
 
-/** Récupère le SHA du dernier commit qui a modifié un chemin donné (utile pour enrichir l’history). */
+
 public Optional<String> getLatestCommitShaForPath(String token, String repoFullName, String branch, String path) {
     try {
         GitHub gh = GitHub.connectUsingOAuth(token);
         GHRepository repo = gh.getRepository(repoFullName);
-        // Attention: GitHub API peut limiter — on prend le premier commit de la liste filtrée par path
+        
         PagedIterable<GHCommit> commits = repo.queryCommits().from(branch).path(path).list();
         Iterator<GHCommit> it = commits.iterator();
         if (it.hasNext()) {
@@ -462,11 +462,44 @@ public Optional<String> getLatestCommitShaForPath(String token, String repoFullN
     return Optional.empty();
 }
 
-/** Expose aussi la default branch (pratique dans certains services d’history). */
+
 public String getDefaultBranch(String token, String repoFullName) throws IOException {
     GitHub gh = GitHub.connectUsingOAuth(token);
     GHRepository repo = gh.getRepository(repoFullName);
     return repo.getDefaultBranch();
+}
+
+public List<String> getAllRepositoryFiles(String repoUrl, String token, String branch) {  
+    try {  
+        
+        String[] parts = repoUrl.replace("https://github.com/", "").split("/");  
+        String owner = parts[0];  
+        String repo = parts[1];  
+          
+       
+        String apiUrl = String.format("https://api.github.com/repos/%s/%s/git/trees/%s?recursive=1",   
+                                     owner, repo, branch);  
+          
+        HttpHeaders headers = createHeaders(token);  
+        HttpEntity<String> entity = new HttpEntity<>(headers);  
+          
+        ResponseEntity<Map> response = restTemplate.exchange(apiUrl, HttpMethod.GET, entity, Map.class);  
+          
+        List<String> files = new ArrayList<>();  
+        if (response.getBody() != null && response.getBody().containsKey("tree")) {  
+            List<Map<String, Object>> tree = (List<Map<String, Object>>) response.getBody().get("tree");  
+              
+            for (Map<String, Object> item : tree) {  
+                if ("blob".equals(item.get("type"))) { // Seulement les fichiers, pas les dossiers  
+                    files.add((String) item.get("path"));  
+                }  
+            }  
+        }  
+          
+        return files;  
+    } catch (RestClientException e) {  
+        throw new RuntimeException("Error fetching all repository files: " + e.getMessage());  
+    }  
 }
 
 }

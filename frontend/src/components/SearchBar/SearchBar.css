@@ -1,0 +1,112 @@
+.search-bar {        
+    width: 100%;        
+    max-width: clamp(160px, 50vw, 400px); /* Réduit de 480px à 400px et 60vw à 50vw */       
+    background-color: #111827;        
+    color: #a9a9a9;        
+    border: none;        
+    border-radius: 6px;        
+    padding: 12px 14px;        
+    font-size: clamp(10px, 1.8vw, 12px);        
+    font-family: Arial, sans-serif;        
+    outline: none;        
+    transition: box-shadow 0.2s ease;        
+    display: block;      
+    box-sizing: border-box; /* Ensures padding is included in width calculation */ 
+}   
+
+.search-bar::placeholder {      
+    color: #7c7c7c;  
+}   
+
+.search-bar:focus {      
+    box-shadow: 0 0 0 2px #3399ff55;  
+}  
+
+/* ===== RESPONSIVE BREAKPOINTS ===== */  
+
+/* Tablet breakpoint */ 
+@media (max-width: 768px) {     
+    .search-bar {         
+        max-width: clamp(220px, 70vw, 500px); /* Réduit la largeur minimale */         
+        padding: 10px 12px;         
+        font-size: clamp(14px, 2.2vw, 16px);     
+    } 
+}  
+
+/* Mobile breakpoint */ 
+@media (max-width: 480px) {     
+    .search-bar {         
+        max-width: 100%;         
+        width: 100%;         
+        padding: 12px;         
+        font-size: 16px; /* Fixed size to prevent zoom on iOS */         
+        border-radius: 8px;         
+        min-height: 44px; /* Minimum touch target size for accessibility */     
+    } 
+}  
+
+/* Small mobile breakpoint */ 
+@media (max-width: 360px) {     
+    .search-bar {         
+        padding: 10px;         
+        font-size: 16px;     
+    } 
+}  
+
+/* Large desktop breakpoint */ 
+@media (min-width: 1200px) {     
+    .search-bar {         
+        max-width: clamp(350px, 45vw, 500px); /* Réduit la largeur maximale */         
+        padding: 14px 16px;         
+        font-size: clamp(15px, 1.5vw, 18px);     
+    } 
+}  
+
+/* Extra large screens */ 
+@media (min-width: 1600px) {     
+    .search-bar {         
+        max-width: 550px; /* Réduit de 700px à 550px */         
+        padding: 16px 20px;         
+        font-size: 18px;     
+    } 
+}  
+
+/* Touch device optimizations */ 
+@media (pointer: coarse) {     
+    .search-bar {         
+        min-height: 48px; /* Larger touch target for touch devices */         
+        padding: 14px;     
+    } 
+}  
+
+/* High DPI screen optimizations */ 
+@media (-webkit-min-device-pixel-ratio: 2), (min-resolution: 192dpi) {     
+    .search-bar:focus {         
+        box-shadow: 0 0 0 1.5px #3399ff55; /* Slightly thinner border on high DPI */     
+    } 
+}  
+
+/* Reduced motion preference */ 
+@media (prefers-reduced-motion: reduce) {     
+    .search-bar {         
+        transition: none;     
+    } 
+}  
+
+/* Dark mode support (if system preference changes) */ 
+@media (prefers-color-scheme: light) {     
+    .search-bar {         
+        background-color: #f8fafc;         
+        color: #374151;         
+        border: 1px solid #d1d5db;     
+    }          
+    
+    .search-bar::placeholder {         
+        color: #9ca3af;     
+    }          
+    
+    .search-bar:focus {         
+        box-shadow: 0 0 0 2px #3b82f655;         
+        border-color: #3b82f6;     
+    } 
+}
