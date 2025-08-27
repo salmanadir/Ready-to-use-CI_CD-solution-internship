@@ -20,7 +20,7 @@ public class DeploymentUrlService {
      */
     public Map<String, List<String>> getLiveUrls(Repo repo, String vmHost) {
         // Get the latest compose file for the repo
-        List<DockerComposeHistory> histories = dockerComposeHistoryService.repo.findByRepoOrderByCreatedAtDesc(repo);
+    List<DockerComposeHistory> histories = dockerComposeHistoryService.getHistoriesByRepo(repo);
         if (histories.isEmpty()) return Collections.emptyMap();
         String composeContent = histories.get(0).getContent();
         Yaml yaml = new Yaml();
