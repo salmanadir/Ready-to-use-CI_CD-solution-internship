@@ -12,6 +12,9 @@ import java.util.Collection;
 @Service
 @RequiredArgsConstructor
 public class DockerComposeHistoryService {
+  public java.util.List<DockerComposeHistory> getHistoriesByRepo(Repo repoEntity) {
+    return repo.findByRepoOrderByCreatedAtDesc(repoEntity);
+  }
 
   private final DockerComposeHistoryRepository repo;
 

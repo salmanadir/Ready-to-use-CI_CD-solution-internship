@@ -72,14 +72,14 @@ public class CdWorkflowController {
             }
             gitHubService.setCurrentToken(token);
             String workflowYaml = cdWorkflowGenerationService.generateCdWorkflow("${{ secrets.VM_HOST }}", "${{ secrets.VM_USER }}");
-            GitHubService.PushResult pr = gitHubService.pushWorkflowToGitHub(
-                    token,
-                    repo.getFullName(),
-                    repo.getDefaultBranch(),
-                    ".github/workflows/cd-deploy.yml",
-                    workflowYaml,
-                    GitHubService.FileHandlingStrategy.OVERWRITE
-            );
+        GitHubService.PushResult pr = gitHubService.pushWorkflowToGitHub(
+            token,
+            repo.getFullName(),
+            repo.getDefaultBranch(),
+            ".github/workflows/cd-deploy.yml",
+            workflowYaml,
+            GitHubService.FileHandlingStrategy.UPDATE_IF_EXISTS
+        );
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "message", "CD workflow generated & pushed",
@@ -94,8 +94,10 @@ public class CdWorkflowController {
 
     // Helper: Auth + repo lookup 
     private Repo requireAuthAndRepo(Authentication authentication, Long repoId) {
-        if (authentication == null || repoId == null) return null;
-        String username = authentication.getName();
-        return repoRepository.findByIdAndUserUsername(repoId, username).orElse(null);
+    if (authentication == null || repoId == null) return null;
+    String username = authentication.getName();
+    return repoRepository.findById(repoId)
+        .filter(repo -> repo.getUser() != null && username.equals(repo.getUser().getUsername()))
+        .orElse(null);
     }
 }
