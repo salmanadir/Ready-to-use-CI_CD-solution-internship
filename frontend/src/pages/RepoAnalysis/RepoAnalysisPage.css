@@ -105,6 +105,36 @@
   position: relative;         /* nécessaire pour le ::after */
 }
 
+.continue-analysis {
+  display: flex;          /* place p et button sur la même ligne */
+  align-items: center;    /* aligne verticalement */
+  gap: 10px; 
+  margin-bottom: 10px;             /* petit espace horizontal entre le texte et le bouton */
+}
+.continue-analysis p {
+  margin: 0;
+  color: white;
+  font-size: 16px;
+ 
+}
+
+.continue-btn {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 6px;
+  color: white;
+  cursor: pointer;
+  font-weight: bold;
+
+  /* ✅ Dégradé violet */
+  background: linear-gradient(90deg, #6a11cb 0%, #2575fc 100%);
+  transition: opacity 0.3s;
+}
+
+.continue-btn:hover {
+  opacity: 0.80; /* petit effet au survol */
+}
+
 
 
 .modal-header { padding:14px 16px; border-bottom:.5px solid rgba(255,255,255,.2); }
