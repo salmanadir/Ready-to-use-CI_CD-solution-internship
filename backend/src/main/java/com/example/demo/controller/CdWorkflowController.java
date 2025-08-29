@@ -94,10 +94,22 @@ public class CdWorkflowController {
 
     // Helper: Auth + repo lookup 
     private Repo requireAuthAndRepo(Authentication authentication, Long repoId) {
-    if (authentication == null || repoId == null) return null;
-    String username = authentication.getName();
-    return repoRepository.findById(repoId)
-        .filter(repo -> repo.getUser() != null && username.equals(repo.getUser().getUsername()))
-        .orElse(null);
+        try {
+            if (authentication == null || !authentication.isAuthenticated()) return null;
+            if (repoId == null) return null;
+
+            java.util.Optional<Repo> repoOpt = repoRepository.findById(repoId);
+            if (repoOpt.isEmpty()) return null;
+
+            Repo repo = repoOpt.get();
+            Object principal = authentication.getPrincipal();
+            if (!(principal instanceof com.example.demo.model.User)) return null;
+            com.example.demo.model.User user = (com.example.demo.model.User) principal;
+            if (repo.getUser() == null || !repo.getUser().getId().equals(user.getId())) return null;
+
+            return repo;
+        } catch (Exception e) {
+            return null;
+        }
     }
 }
