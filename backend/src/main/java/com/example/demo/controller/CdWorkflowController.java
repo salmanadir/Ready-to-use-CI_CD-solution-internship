@@ -3,6 +3,7 @@ package com.example.demo.controller;
 import com.example.demo.model.Repo;
 import com.example.demo.repository.RepoRepository;
 import com.example.demo.service.CdWorkflowGenerationService;
+import com.example.demo.repository.CiWorkflowRepository;
 import com.example.demo.service.GitHubService;
 import com.example.demo.service.DeploymentUrlService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -22,6 +23,7 @@ public class CdWorkflowController {
     @Autowired private GitHubService gitHubService;
     @Autowired private RepoRepository repoRepository;
     @Autowired private DeploymentUrlService deploymentUrlService;
+    @Autowired private CiWorkflowRepository ciWorkflowRepository;
     // GET LIVE URLS: Returns the live URLs for deployed services
     @GetMapping("/live-urls")
     public ResponseEntity<?> getLiveUrls(@RequestParam Long repoId, @RequestParam String vmHost, Authentication authentication) {
@@ -48,6 +50,13 @@ public class CdWorkflowController {
             if (repo == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
                     "success", false, "message", "Authentication required or repo not found / not owned"
             ));
+            // Check if CI workflow exists for this repo
+            if (ciWorkflowRepository.findByRepo(repo).isEmpty()) {
+                return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "success", false,
+                    "message", "You must generate a CI workflow for this repository before generating a CD workflow."
+                ));
+            }
             String workflowYaml = cdWorkflowGenerationService.generateCdWorkflow("${{ secrets.VM_HOST }}", "${{ secrets.VM_USER }}");
             return ResponseEntity.ok(Map.of(
                     "success", true,
@@ -66,20 +75,27 @@ public class CdWorkflowController {
             if (repo == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
                     "success", false, "message", "Authentication required or repo not found / not owned"
             ));
+            // Check if CI workflow exists for this repo
+            if (ciWorkflowRepository.findByRepo(repo).isEmpty()) {
+                return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                    "success", false,
+                    "message", "You must generate a CI workflow for this repository before generating a CD workflow."
+                ));
+            }
             String token = repo.getUser().getToken();
             if (token == null || token.isEmpty()) {
                 return ResponseEntity.badRequest().body(Map.of("success", false, "message", "GitHub token not found for user"));
             }
             gitHubService.setCurrentToken(token);
             String workflowYaml = cdWorkflowGenerationService.generateCdWorkflow("${{ secrets.VM_HOST }}", "${{ secrets.VM_USER }}");
-        GitHubService.PushResult pr = gitHubService.pushWorkflowToGitHub(
-            token,
-            repo.getFullName(),
-            repo.getDefaultBranch(),
-            ".github/workflows/cd-deploy.yml",
-            workflowYaml,
-            GitHubService.FileHandlingStrategy.UPDATE_IF_EXISTS
-        );
+            GitHubService.PushResult pr = gitHubService.pushWorkflowToGitHub(
+                token,
+                repo.getFullName(),
+                repo.getDefaultBranch(),
+                ".github/workflows/cd-deploy.yml",
+                workflowYaml,
+                GitHubService.FileHandlingStrategy.UPDATE_IF_EXISTS
+            );
             return ResponseEntity.ok(Map.of(
                     "success", true,
                     "message", "CD workflow generated & pushed",
