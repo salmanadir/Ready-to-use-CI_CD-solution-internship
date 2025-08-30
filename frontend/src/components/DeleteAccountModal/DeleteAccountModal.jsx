@@ -51,7 +51,7 @@ const DeleteAccountModal = ({ isOpen, onClose, onConfirm, username, isDeleting }
                 <ul>
                   <li>🗑️ Delete all your data</li>
                   <li>🔒 Revoke GitHub access</li>
-                  <li>📊 Remove all repositories and pipelines</li>
+                  
                   <li>❌ Cannot be recovered</li>
                 </ul>
               </div>

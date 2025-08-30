@@ -19,7 +19,6 @@ import com.example.demo.model.CiWorkflow;
 import com.example.demo.model.Repo;
 import com.example.demo.model.User;
 import com.example.demo.repository.RepoRepository;
-import com.example.demo.repository.CiWorkflowRepository;
 import com.example.demo.repository.CdWorkflowRepository;
 
 @RestController
@@ -30,8 +29,7 @@ public class HistoryController {
     @Autowired
     private RepoRepository repoRepository;
     
-    @Autowired
-    private CiWorkflowRepository ciWorkflowRepository;
+  
     
     @Autowired
     private CdWorkflowRepository cdWorkflowRepository;
