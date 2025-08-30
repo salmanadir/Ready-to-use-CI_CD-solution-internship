@@ -5,6 +5,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -23,7 +24,7 @@ import com.example.demo.repository.CdWorkflowRepository;
 
 @RestController
 @RequestMapping("/api/history")
-@CrossOrigin(origins = "*") 
+@CrossOrigin(origins = "http://localhost:5173", allowedHeaders = "*", allowCredentials = "true")
 public class HistoryController {
 
     @Autowired
@@ -36,66 +37,37 @@ public class HistoryController {
     private CdWorkflowRepository cdWorkflowRepository;
 
     @GetMapping("/user-activity")
+    @CrossOrigin(origins = "http://localhost:5173", allowedHeaders = "*", allowCredentials = "true")
     public ResponseEntity<?> getUserHistory(Authentication authentication) {
         try {
             User user = (User) authentication.getPrincipal();
-            Long userId = user.getId(); // ✅ Fixed: use getId() instead of getUserId()
+            Long userId = user.getId();
             
             List<Map<String, Object>> historyItems = new ArrayList<>();
             
-            // Get all repositories for this user
+            // ✅ Use existing method that works
             List<Repo> userRepos = repoRepository.findByUser_UserId(userId);
             
+            // ✅ Group operations by repository
             for (Repo repo : userRepos) {
-                // Add repository connection event
-                Map<String, Object> repoEvent = new HashMap<>();
-                repoEvent.put("id", "repo-" + repo.getRepoId());
-                repoEvent.put("repoName", getRepoName(repo));
-                repoEvent.put("action", "Repository Connected");
-                repoEvent.put("type", "repo");
-                repoEvent.put("status", "success");
-                repoEvent.put("createdAt", LocalDateTime.now().minusDays(1)); // Mock for now
+                Map<String, Object> repoEvent = createRepoHistoryItem(repo, userId);
                 historyItems.add(repoEvent);
             }
             
-            // Get all CD workflows for this user's repos
-            List<CdWorkflow> cdWorkflows = cdWorkflowRepository.findByCiWorkflow_Repo_User_Id(userId);  
-            for (CdWorkflow cd : cdWorkflows) {
-                Map<String, Object> cdEvent = new HashMap<>();
-                cdEvent.put("id", "cd-" + cd.getCdWorkflowId()); // ✅ Fixed: use getCdWorkflowId()
-                cdEvent.put("repoName", getRepoNameFromCd(cd));
-                cdEvent.put("action", "CD Workflow Generated");
-                cdEvent.put("type", "cd");
-                cdEvent.put("status", getCdStatus(cd));
-                cdEvent.put("createdAt", cd.getCreatedAt()); // ✅ Use real timestamp
-                cdEvent.put("workflowContent", getCdWorkflowContent(cd));
-                cdEvent.put("workflowName", "CD Workflow");
-                historyItems.add(cdEvent);
-            }
-            
-            // Get CI workflows by iterating through repos
-            for (Repo repo : userRepos) {
-                // Check if repo has CI workflows - safe navigation
-                if (repo.getCiWorkflows() != null && !repo.getCiWorkflows().isEmpty()) {
-                    for (CiWorkflow ci : repo.getCiWorkflows()) {
-                        Map<String, Object> ciEvent = new HashMap<>();
-                        ciEvent.put("id", "ci-" + ci.getCiWorkflowId()); // ✅ Fixed: use getCiWorkflowId()
-                        ciEvent.put("repoName", getRepoName(repo));
-                        ciEvent.put("action", "CI Workflow Generated");
-                        ciEvent.put("type", "ci");
-                        ciEvent.put("status", getCiStatus(ci));
-                        ciEvent.put("createdAt", ci.getCreatedAt()); // ✅ Use real timestamp
-                        ciEvent.put("workflowContent", getCiWorkflowContent(ci));
-                        ciEvent.put("workflowName", "CI Workflow");
-                        historyItems.add(ciEvent);
-                    }
-                }
-            }
-            
-            // Sort by creation date (most recent first)
+            // ✅ Fix the sorting with proper type casting
             historyItems.sort((a, b) -> {
-                LocalDateTime dateA = (LocalDateTime) a.get("createdAt");
-                LocalDateTime dateB = (LocalDateTime) b.get("createdAt");
+                Object objA = a.get("lastActivity");
+                Object objB = b.get("lastActivity");
+                
+                LocalDateTime dateA = null;
+                LocalDateTime dateB = null;
+                
+                if (objA instanceof LocalDateTime) {
+                    dateA = (LocalDateTime) objA;
+                }
+                if (objB instanceof LocalDateTime) {
+                    dateB = (LocalDateTime) objB;
+                }
                 
                 if (dateA == null && dateB == null) return 0;
                 if (dateA == null) return 1;
@@ -119,20 +91,155 @@ public class HistoryController {
         }
     }
     
-    // Helper methods
-    private String getRepoName(Repo repo) {
-        if (repo == null) return "Unknown Repo";
+    // ✅ Fixed method using only existing repository methods
+    private Map<String, Object> createRepoHistoryItem(Repo repo, Long userId) {
+        Map<String, Object> repoEvent = new HashMap<>();
         
-        if (repo.getGithubRepoId() != null) return repo.getGithubRepoId();
-        if (repo.getFullName() != null) return repo.getFullName();
-        return "Repository #" + repo.getRepoId();
+        String repoName = getCleanRepoName(repo);
+        
+        repoEvent.put("id", "repo-" + repo.getRepoId());
+        repoEvent.put("repoName", repoName);
+        repoEvent.put("type", "repository");
+        repoEvent.put("status", "active");
+        
+        List<Map<String, Object>> operations = new ArrayList<>();
+        
+        // Handle repository creation timestamp
+        LocalDateTime repoCreatedAt = repo.getCreatedAt() != null ? 
+            repo.getCreatedAt() : LocalDateTime.now().minusDays(1);
+        LocalDateTime lastActivity = repoCreatedAt;
+        
+        // ✅ ALWAYS add repository connection
+        Map<String, Object> connectionOp = new HashMap<>();
+        connectionOp.put("type", "connection");
+        connectionOp.put("action", "Repository Connected");
+        connectionOp.put("timestamp", repoCreatedAt);
+        connectionOp.put("status", "success");
+        operations.add(connectionOp);
+        
+        // ✅ Add CI workflows if they exist
+        if (repo.getCiWorkflows() != null && !repo.getCiWorkflows().isEmpty()) {
+            for (CiWorkflow ci : repo.getCiWorkflows()) {
+                if (ci.getContent() != null && !ci.getContent().trim().isEmpty()) {
+                    LocalDateTime ciTimestamp = ci.getCreatedAt() != null ? 
+                        ci.getCreatedAt() : repoCreatedAt.plusMinutes(30);
+                    
+                    Map<String, Object> ciOp = new HashMap<>();
+                    ciOp.put("type", "ci");
+                    ciOp.put("action", "CI Workflow Generated");
+                    ciOp.put("timestamp", ciTimestamp);
+                    ciOp.put("status", getCiStatus(ci));
+                    ciOp.put("workflowContent", ci.getContent());
+                    operations.add(ciOp);
+                    
+                    if (ciTimestamp.isAfter(lastActivity)) {
+                        lastActivity = ciTimestamp;
+                    }
+                }
+            }
+        }
+        
+        // ✅ Use existing method - find CD workflows by user ID and filter manually
+        List<CdWorkflow> allCdWorkflows = cdWorkflowRepository.findByCiWorkflow_Repo_User_Id(userId);
+        for (CdWorkflow cd : allCdWorkflows) {
+            // Check if this CD belongs to current repo
+            if (cd.getCiWorkflow() != null && 
+                cd.getCiWorkflow().getRepo() != null && 
+                cd.getCiWorkflow().getRepo().getRepoId().equals(repo.getRepoId()) &&
+                cd.getContent() != null && !cd.getContent().trim().isEmpty()) {
+                
+                LocalDateTime cdTimestamp = cd.getCreatedAt() != null ? 
+                    cd.getCreatedAt() : repoCreatedAt.plusHours(1);
+                
+                Map<String, Object> cdOp = new HashMap<>();
+                cdOp.put("type", "cd");
+                cdOp.put("action", "CD Workflow Generated");
+                cdOp.put("timestamp", cdTimestamp);
+                cdOp.put("status", getCdStatus(cd));
+                cdOp.put("workflowContent", cd.getContent());
+                operations.add(cdOp);
+                
+                if (cdTimestamp.isAfter(lastActivity)) {
+                    lastActivity = cdTimestamp;
+                }
+            }
+        }
+        
+        // ✅ Fix sorting with proper type handling
+        operations.sort((a, b) -> {
+            Object objA = a.get("timestamp");
+            Object objB = b.get("timestamp");
+            
+            LocalDateTime dateA = null;
+            LocalDateTime dateB = null;
+            
+            if (objA instanceof LocalDateTime) {
+                dateA = (LocalDateTime) objA;
+            }
+            if (objB instanceof LocalDateTime) {
+                dateB = (LocalDateTime) objB;
+            }
+            
+            if (dateA == null && dateB == null) return 0;
+            if (dateA == null) return 1;
+            if (dateB == null) return -1;
+            
+            return dateB.compareTo(dateA);
+        });
+        
+        repoEvent.put("operations", operations);
+        repoEvent.put("lastActivity", lastActivity);
+        repoEvent.put("operationCount", operations.size());
+        
+        String summaryAction = createSummaryAction(operations);
+        repoEvent.put("action", summaryAction);
+        repoEvent.put("createdAt", lastActivity);
+        
+        return repoEvent;
     }
     
-    private String getRepoNameFromCd(CdWorkflow cd) {
-        if (cd == null || cd.getCiWorkflow() == null || cd.getCiWorkflow().getRepo() == null) {
-            return "Unknown Repo";
+    private String createSummaryAction(List<Map<String, Object>> operations) {
+        boolean hasConnection = false;
+        boolean hasCI = false;
+        boolean hasCD = false;
+        
+        for (Map<String, Object> op : operations) {
+            String type = (String) op.get("type");
+            if ("connection".equals(type)) {
+                hasConnection = true;
+            } else if ("ci".equals(type)) {
+                hasCI = true;
+            } else if ("cd".equals(type)) {
+                hasCD = true;
+            }
         }
-        return getRepoName(cd.getCiWorkflow().getRepo());
+        
+        if (hasConnection && hasCI && hasCD) {
+            return "Full CI/CD Pipeline Setup";
+        } else if (hasConnection && hasCI) {
+            return "Repository with CI Setup";
+        } else if (hasConnection) {
+            return "Repository Connected";
+        } else {
+            return "Repository Activity";
+        }
+    }
+    
+    private String getCleanRepoName(Repo repo) {
+        if (repo.getFullName() != null && !repo.getFullName().isEmpty()) {
+            return repo.getFullName();
+        }
+        
+        if (repo.getGithubRepoId() != null && !repo.getGithubRepoId().isEmpty()) {
+            try {
+                Long.parseLong(repo.getGithubRepoId());
+                return "Repository #" + repo.getGithubRepoId();
+            } catch (NumberFormatException e) {
+                return repo.getGithubRepoId();
+            }
+        }
+        
+        return "Repository #" + repo.getRepoId();
     }
     
     private String getCiStatus(CiWorkflow ci) {
@@ -151,75 +258,5 @@ public class HistoryController {
             }
         } catch (Exception e) {}
         return "success";
-    }
-    
-    private String getCiWorkflowContent(CiWorkflow ci) {
-        // ✅ Try to get real content first
-        try {
-            if (ci.getContent() != null && !ci.getContent().isEmpty()) {
-                return ci.getContent();
-            }
-        } catch (Exception e) {
-            // Method might not exist, fallback to mock
-        }
-        
-        // Fallback to mock content
-        return """
-name: CI
-on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
-
-jobs:
-  test:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    - name: Setup Node.js
-      uses: actions/setup-node@v3
-      with:
-        node-version: '18'
-    - name: Install dependencies
-      run: npm install
-    - name: Run tests
-      run: npm test
-        """;
-    }
-    
-    private String getCdWorkflowContent(CdWorkflow cd) {
-        // ✅ Try to get real content first
-        try {
-            if (cd.getContent() != null && !cd.getContent().isEmpty()) {
-                return cd.getContent();
-            }
-        } catch (Exception e) {
-            // Keep fallback
-        }
-        
-        // Fallback to mock content
-        return """
-name: CD
-on:
-  push:
-    branches: [ main ]
-
-jobs:
-  deploy:
-    runs-on: ubuntu-latest
-    steps:
-    - uses: actions/checkout@v3
-    - name: Setup Node.js
-      uses: actions/setup-node@v3
-      with:
-        node-version: '18'
-    - name: Install dependencies
-      run: npm install
-    - name: Build
-      run: npm run build
-    - name: Deploy
-      run: npm run deploy
-        """;
     }
 }

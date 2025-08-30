@@ -2,13 +2,13 @@
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
-import LandingPage from './pages/LandingPage/LandingPageTemp';
+import LandingPage from './pages/LandingPage/LandingPage';
 import Dashboard from './pages/Dashboard/Dashboard';
 import AuthCallback from './pages/AuthCallback/Authcallback';
 import ProtectedRoute from './components/ProtectedRoute';
-import './styles/globals.css'; // Global styles
+import './App.css'; 
 
-
+import SelectRepository from './pages/SelectRepository'; // New import
 
 function App() {
   return (
@@ -29,9 +29,6 @@ function App() {
               </ProtectedRoute>
             } 
           />
-          
-
-          {/* Add more routes for your team as needed */}
         </Routes>
       </Router>
     </AuthProvider>

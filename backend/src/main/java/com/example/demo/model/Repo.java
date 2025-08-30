@@ -4,6 +4,8 @@ import java.util.ArrayList;
 import java.util.List;  
 import com.fasterxml.jackson.annotation.JsonIgnore;  
 import jakarta.persistence.*;  
+import java.time.LocalDateTime; 
+import org.hibernate.annotations.CreationTimestamp; 
   
 @Entity  
 @Table(name = "repo")  
@@ -36,6 +38,10 @@ public class Repo {
     @OneToMany(mappedBy = "repo", cascade = CascadeType.ALL, fetch = FetchType.LAZY, orphanRemoval = true)  
     @JsonIgnore   
     private List<CiWorkflow> ciWorkflows = new ArrayList<>();  
+
+    @CreationTimestamp
+    @Column(name = "created_at", nullable = false, updatable = false)
+    private LocalDateTime createdAt;
   
     // Getters et setters complets  
     public Long getRepoId() { return repoId; }  
@@ -61,4 +67,7 @@ public class Repo {
       
     public List<CiWorkflow> getCiWorkflows() { return ciWorkflows; }  
     public void setCiWorkflows(List<CiWorkflow> ciWorkflows) { this.ciWorkflows = ciWorkflows; }  
+
+    public LocalDateTime getCreatedAt() { return createdAt; }
+    public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
 }
