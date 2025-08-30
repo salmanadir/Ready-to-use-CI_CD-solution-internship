@@ -1,0 +1,11 @@
+/* src/components/Layout/Layout.css */
+.app-layout {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.main-content {
+  flex: 1;
+  background: var(--bg-color);
+}
