@@ -8,8 +8,6 @@ import AuthCallback from './pages/AuthCallback/Authcallback';
 import ProtectedRoute from './components/ProtectedRoute';
 import './App.css'; 
 
-import SelectRepository from './pages/SelectRepository'; // New import
-
 function App() {
   return (
     <AuthProvider>
