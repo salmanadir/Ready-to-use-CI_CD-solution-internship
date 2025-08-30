@@ -4,6 +4,7 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import LandingPage from './pages/LandingPage/LandingPage';
 import Dashboard from './pages/Dashboard/Dashboard';
+import CDGeneration from './pages/Dashboard/cdGeneration';
 import AuthCallback from './pages/AuthCallback/Authcallback';
 import ProtectedRoute from './components/ProtectedRoute';
 import './App.css'; 
@@ -26,6 +27,14 @@ function App() {
                 <Dashboard />
               </ProtectedRoute>
             } 
+          />
+          <Route
+            path="/dashboard/cd-generation"
+            element={
+              <ProtectedRoute>
+                <CDGeneration />
+              </ProtectedRoute>
+            }
           />
         </Routes>
       </Router>
