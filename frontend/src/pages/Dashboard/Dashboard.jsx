@@ -31,7 +31,7 @@ const Dashboard = () => {
       description: 'Set up Continuous Deployment pipelines for automatic releases',
       icon: '🚀',
       color: 'from-purple-500 to-purple-600',
-      path: '/generate-cd'
+      path: '/dashboard/cd-generation'
     }
   ];
 
