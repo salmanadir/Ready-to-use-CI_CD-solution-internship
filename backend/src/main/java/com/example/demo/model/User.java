@@ -38,10 +38,11 @@ public class User {
     @Column(name="avatar_url", length = 500)  
     private String avatarUrl;  
   
-    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.LAZY, orphanRemoval = true)  
+    @OneToMany(mappedBy = "user", cascade = CascadeType.ALL, fetch = FetchType.EAGER, orphanRemoval = true)  
     @JsonIgnore  
-    private List<Repo> repositories = new ArrayList<>();  
-  
+
+    private List<Repo> repositories = new ArrayList<>();
+
     // Getters et setters  
     public String getEmail() {  
         return email;  
@@ -57,6 +58,7 @@ public class User {
     public Long getGithubId() { return githubId; }  
     public void setGithubId(Long githubId) { this.githubId = githubId; }  
   
+
     public String getUsername() { return username; }  
     public void setUsername(String username) { this.username = username; }  
   

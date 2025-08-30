@@ -1,3 +1,4 @@
+
 package com.example.demo.model;  
   
 import jakarta.persistence.*;  
@@ -39,4 +40,5 @@ public class DeploymentArchitecture {
   
     public List<CdWorkflow> getCdWorkflows() { return cdWorkflows; }  
     public void setCdWorkflows(List<CdWorkflow> cdWorkflows) { this.cdWorkflows = cdWorkflows; }  
+
 }

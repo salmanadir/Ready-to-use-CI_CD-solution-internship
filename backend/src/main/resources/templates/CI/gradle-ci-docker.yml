@@ -1,0 +1,74 @@
+name: CI (Spring Boot Gradle) + Docker
+
+on:
+  push: { branches: [ "main" ] }
+  pull_request: { branches: [ "main" ] }
+
+env:
+  JAVA_VERSION: {{javaVersion}}
+  WORKING_DIR: {{workingDirectory}}
+  REGISTRY: {{registry}}
+  IMAGE_NAME: {{imageName}}
+  DOCKERFILE: {{dockerfilePath}}
+  DOCKER_BUILD_CONTEXT: {{dockerContext}}   # ex: "." pour Java
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    permissions: { contents: read, packages: write }
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK ${{ env.JAVA_VERSION }}
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Pick Gradle command
+        working-directory: ${{ env.WORKING_DIR }}
+        shell: bash
+        run: |
+          if [[ -f gradlew ]]; then
+            chmod +x gradlew
+            echo "GRADLE=./gradlew" >> "$GITHUB_ENV"
+          else
+            echo "GRADLE=gradle" >> "$GITHUB_ENV"
+          fi
+
+      - name: Setup Gradle (cache)
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Tests
+        run: ${{ env.GRADLE }} test --no-daemon
+        working-directory: ${{ env.WORKING_DIR }}
+
+      - name: Build (skip tests)
+        run: ${{ env.GRADLE }} build -x test --no-daemon
+        working-directory: ${{ env.WORKING_DIR }}
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Extract Docker metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          tags: |
+            type=sha
+            type=raw,value=latest,enable=${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+
+      - name: Build image & (conditionally) push
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ env.DOCKER_BUILD_CONTEXT }}
+          file: ${{ env.DOCKERFILE }}
+          push: ${{ github.ref == format('refs/heads/{0}', github.event.repository.default_branch) }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}

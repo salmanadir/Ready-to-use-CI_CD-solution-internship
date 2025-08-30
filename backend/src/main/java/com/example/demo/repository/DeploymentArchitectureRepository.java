@@ -8,13 +8,16 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
-import com.example.demo.model.DeploymentArchitecture;    
-    
-@Repository    
-public interface DeploymentArchitectureRepository extends JpaRepository<DeploymentArchitecture, Long> {    
-    
-    // Recherche par clé de template CD  
-    Optional<DeploymentArchitecture> findByCdTemplateKey(String cdTemplateKey);  
+
+import com.example.demo.model.DeploymentArchitecture;
+
+
+@Repository
+public interface DeploymentArchitectureRepository extends JpaRepository<DeploymentArchitecture, Long> {
+
+    // Recherche par clé de template CD
+    Optional<DeploymentArchitecture> findByCdTemplateKey(String cdTemplateKey);
+
   
     // Recherche par nom  
     Optional<DeploymentArchitecture> findByNameArchitecture(String nameArchitecture);  
@@ -35,4 +38,5 @@ public interface DeploymentArchitectureRepository extends JpaRepository<Deployme
     // Compter le nombre d'utilisations d'une architecture  
     @Query("SELECT COUNT(cd) FROM CdWorkflow cd WHERE cd.deploymentArchitecture = :architecture")  
     long countUsageByArchitecture(@Param("architecture") DeploymentArchitecture architecture);  
+
 }

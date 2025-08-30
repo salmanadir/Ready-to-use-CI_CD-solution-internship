@@ -35,34 +35,66 @@ public class StackAnalysisController {
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @PostMapping("/analyze/{repoId}")
-    public ResponseEntity<Map<String, Object>> analyzeRepository(@PathVariable Long repoId) {
-        try {
-            Repo repo = repoRepository.findById(repoId)
-                    .orElseThrow(() -> new RuntimeException("Repository not found"));
+public ResponseEntity<Map<String, Object>> analyzeRepository(@PathVariable Long repoId) {
+    try {
+        Repo repo = repoRepository.findById(repoId)
+                .orElseThrow(() -> new RuntimeException("Repository not found"));
 
-            StackAnalysis analysis = stackDetectionService.analyzeRepository(
-                    repo.getUrl(),
-                    repo.getUser().getToken(),
-                    repo.getDefaultBranch()
-            );
+        String repoUrl   = repo.getUrl();
+        String token     = repo.getUser().getToken();
+        String defBranch = repo.getDefaultBranch();
 
-            String analysisJson = objectMapper.writeValueAsString(analysis);
-            repo.setTechnicalDetails(analysisJson);
-            repoRepository.save(repo);
+        // 1) Détection multi-services (toujours)
+        var services = stackDetectionService.analyzeAllServices(repoUrl, token);
 
-            Map<String, Object> response = new HashMap<>();
-            response.put("success", true);
-            response.put("analysis", analysis);
-            response.put("message", "Analysis completed successfully");
-
-            return ResponseEntity.ok(response);
-        } catch (Exception e) {
-            Map<String, Object> errorResponse = new HashMap<>();
-            errorResponse.put("success", false);
-            errorResponse.put("message", "Error during analysis: " + e.getMessage());
-            return ResponseEntity.badRequest().body(errorResponse);
+        if (services == null || services.isEmpty()) {
+            Map<String, Object> resp = new HashMap<>();
+            resp.put("success", false);
+            resp.put("message", "No recognizable service found (no pom.xml / build.gradle / package.json).");
+            return ResponseEntity.ok(resp);
         }
+
+        // 2) Choisir un "primary" (préférence backend Spring, sinon 1er)
+        String primaryServiceId = services.stream()
+                .filter(s -> s.getStackType().contains("SPRING_BOOT"))
+                .map(s -> s.getId())
+                .findFirst()
+                .orElse(services.get(0).getId());
+
+        Map<String, Object> payload = new HashMap<>();
+        payload.put("success", true);
+        payload.put("services", services);
+        payload.put("primaryServiceId", primaryServiceId);
+        payload.put("defaultBranch", defBranch);
+
+        // 3) Mode single vs multi
+        if (services.size() == 1) {
+            payload.put("mode", "single");
+
+            // On garde l’ancienne analyse "mono-service" pour compat UI existante
+            StackAnalysis single = stackDetectionService.analyzeRepository(repoUrl, token, defBranch);
+            payload.put("analysis", single); // <-- compat historique (ton UI l’attend)
+
+            payload.put("message", "Single-service repository analyzed successfully");
+        } else {
+            payload.put("mode", "multi");
+            payload.put("message", "Multi-service repository analyzed successfully");
+        }
+
+        // 4) Persistance d’un format unifié dans la colonne technicalDetails
+        String detailsJson = objectMapper.writeValueAsString(payload);
+        repo.setTechnicalDetails(detailsJson);
+        repoRepository.save(repo);
+
+        return ResponseEntity.ok(payload);
+
+    } catch (Exception e) {
+        Map<String, Object> errorResponse = new HashMap<>();
+        errorResponse.put("success", false);
+        errorResponse.put("message", "Error during analysis: " + e.getMessage());
+        return ResponseEntity.badRequest().body(errorResponse);
     }
+}
 
     @GetMapping("/repository/{repoId}")
     public ResponseEntity<Map<String, Object>> getRepositoryAnalysis(@PathVariable Long repoId) {
@@ -79,6 +111,7 @@ public class StackAnalysisController {
 
             StackAnalysis analysis = objectMapper.readValue(repo.getTechnicalDetails(), StackAnalysis.class);
 
+
             Map<String, Object> response = new HashMap<>();
             response.put("success", true);
             response.put("analysis", analysis);
@@ -91,7 +124,26 @@ public class StackAnalysisController {
             return ResponseEntity.badRequest().body(errorResponse);
         }
     }
-
+    @PostMapping("/generate-services/{repoId}")  
+        public ResponseEntity<Map<String, Object>> generateServices(@PathVariable Long repoId) {  
+        try {  
+            Repo repo = repoRepository.findById(repoId)  
+                .orElseThrow(() -> new RuntimeException("Repository not found"));  
+  
+            Map<String, Object> services = stackDetectionService.generateStructuredServices(  
+                repo.getUrl(),  
+                repo.getUser().getToken(),  
+                repo.getDefaultBranch()  
+        );  
+  
+        return ResponseEntity.ok(services);  
+        } catch (Exception e) {  
+            Map<String, Object> errorResponse = new HashMap<>();  
+            errorResponse.put("success", false);  
+            errorResponse.put("message", "Error generating services: " + e.getMessage());  
+        return ResponseEntity.badRequest().body(errorResponse);  
+    }  
+}
     @PutMapping("/repository/{repoId}/update-parameters")
     public ResponseEntity<Map<String, Object>> updateStackParameters(
             @PathVariable Long repoId,
@@ -120,6 +172,15 @@ public class StackAnalysisController {
             }
             if (updatedParameters.containsKey("orchestrator")) {
                 currentAnalysis.setOrchestrator((String) updatedParameters.get("orchestrator"));
+            }
+            
+            if (updatedParameters.containsKey("nodeVersion")) {
+                Map<String, Object> pd = currentAnalysis.getProjectDetails();
+                if (pd == null) {
+                    pd = new HashMap<>();
+                    currentAnalysis.setProjectDetails(pd);
+                }
+                pd.put("nodeVersion", (String) updatedParameters.get("nodeVersion"));
             }
 
             String updatedJson = objectMapper.writeValueAsString(currentAnalysis);
