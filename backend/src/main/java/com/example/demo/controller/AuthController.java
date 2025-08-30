@@ -12,6 +12,9 @@ import com.example.demo.model.User;
 import com.example.demo.repository.UserRepository;
 import org.springframework.security.core.Authentication;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.net.URLEncoder;
+
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
@@ -38,7 +41,7 @@ public class AuthController {
     private long jwtExpiration;
 
     private final UserRepository userRepository;
-
+    private final ObjectMapper objectMapper = new ObjectMapper(); // remember this line in front
     public AuthController(UserRepository userRepository) {
         this.userRepository = userRepository;
     }
@@ -55,8 +58,8 @@ public class AuthController {
                 .build();
     }
 
-    @GetMapping("/callback")
-    public ResponseEntity<?> callback(@RequestParam("code") String code) {
+    @GetMapping("backend/test/delete/callback")
+    public ResponseEntity<?> callback_backend(@RequestParam("code") String code) {
         try {
             // Step 1: Exchange code for access token
             String accessToken = exchangeCodeForToken(code);
@@ -98,6 +101,65 @@ public class AuthController {
                 .body(Map.of("error", "Authentication failed: " + e.getMessage()));
         }
     }
+    @GetMapping("/callback")
+public ResponseEntity<?> callback(@RequestParam("code") String code) {
+    try {
+        // Step 1: Exchange code for access token (your existing logic)
+        String accessToken = exchangeCodeForToken(code);
+        if (accessToken == null) {
+            // Redirect to frontend with error
+            return ResponseEntity.status(HttpStatus.FOUND)
+                .header("Location", "http://localhost:3000/auth/callback?error=Failed to obtain access token")
+                .build();
+        }
+
+        // Step 2: Fetch user info from GitHub (your existing logic)
+        Map<String, Object> userData = fetchGitHubUserData(accessToken);
+        if (userData == null || userData.get("id") == null) {
+            return ResponseEntity.status(HttpStatus.FOUND)
+                .header("Location", "http://localhost:3000/auth/callback?error=Failed to fetch user data")
+                .build();
+        }
+
+        // Step 3: Save or update user in database (your existing logic)
+        User user = saveOrUpdateUser(userData, accessToken);
+
+        // Step 4: Generate JWT (your existing logic)
+        String jwt = generateJWT(user);
+
+        // Step 5: Create user data for frontend
+        Map<String, Object> userForFrontend = Map.of(
+            "id", user.getId(),
+            "username", user.getUsername(),
+            "email", user.getEmail() != null ? user.getEmail() : "",
+            "avatarUrl", user.getAvatarUrl() != null ? user.getAvatarUrl() : "",
+            "githubId", user.getGithubId()
+        );
+
+        // Step 6: Redirect to frontend with token and user data
+        try {
+            String userJson = objectMapper.writeValueAsString(userForFrontend);
+            String redirectUrl = "http://localhost:5173/auth/callback" + 
+                "?token=" + URLEncoder.encode(jwt, StandardCharsets.UTF_8) + 
+                "&user=" + URLEncoder.encode(userJson, StandardCharsets.UTF_8);
+                
+            return ResponseEntity.status(HttpStatus.FOUND)
+                .header("Location", redirectUrl)
+                .build();
+                
+        } catch (Exception jsonException) {
+            return ResponseEntity.status(HttpStatus.FOUND)
+                .header("Location", "http://localhost:5173/auth/callback?error=Failed to process user data")
+                .build();
+        }
+
+    } catch (Exception e) {
+        e.printStackTrace();
+        return ResponseEntity.status(HttpStatus.FOUND)
+            .header("Location", "http://localhost:5173/auth/callback?error=" + URLEncoder.encode("Authentication failed: " + e.getMessage(), StandardCharsets.UTF_8))
+            .build();
+    }
+}
     @PostMapping("/refresh")
 public ResponseEntity<Map<String, Object>> refreshToken(Authentication authentication) {
     User user = (User) authentication.getPrincipal();
@@ -109,49 +171,27 @@ public ResponseEntity<Map<String, Object>> refreshToken(Authentication authentic
         "message", "Token refreshed"
     ));
 }
-    @DeleteMapping("/delete-account")
-    public ResponseEntity<Map<String, Object>> deleteAccount(Authentication authentication) {
-    try {
-        User user = (User) authentication.getPrincipal();
-        
-        // Step 1: Revoke GitHub token
-        revokeGitHubToken(user.getToken());
-        
-        // Step 2: Delete user completely
-        userRepository.delete(user);
-        
-        Map<String, Object> response = new HashMap<>();
-        response.put("success", true);
-        response.put("message", "Account deleted successfully");
-        response.put("deleted_user", user.getUsername());
-        
-        return ResponseEntity.ok(response);
-        
-    } catch (Exception e) {
-        return ResponseEntity.status(500)
-            .body(Map.of(
-                "success", false,
-                "error", "Failed to delete account: " + e.getMessage()
-            ));
-    }
-    }
     private boolean revokeGitHubToken(String accessToken) {
     if (accessToken == null || accessToken.isEmpty()) {
+        System.out.println("🔍 No token to revoke");
         return true; // Nothing to revoke
     }
     
     try {
         RestTemplate restTemplate = new RestTemplate();
         
-        // GitHub's token revocation endpoint
-        String revokeUrl = "https://api.github.com/applications/" + clientId + "/token";
+        // ✅ CORRECT: Use the user token revocation endpoint
+        String revokeUrl = "https://api.github.com/applications/" + clientId + "/grant";
         
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.setBasicAuth(clientId, clientSecret); // Basic auth with client credentials
         
+        // ✅ CORRECT: Send access_token in request body
         Map<String, String> requestBody = Map.of("access_token", accessToken);
         HttpEntity<Map<String, String>> request = new HttpEntity<>(requestBody, headers);
+        
+        System.out.println("🗑️ Attempting to revoke GitHub token...");
         
         ResponseEntity<String> response = restTemplate.exchange(
             revokeUrl, 
@@ -159,13 +199,55 @@ public ResponseEntity<Map<String, Object>> refreshToken(Authentication authentic
             request, 
             String.class
         );
-        // GitHub returns 204 No Content on successful revocation
-        return response.getStatusCode().is2xxSuccessful();
+        
+        boolean success = response.getStatusCode().is2xxSuccessful();
+        System.out.println("🔍 GitHub token revocation status: " + response.getStatusCode() + " - " + (success ? "SUCCESS" : "FAILED"));
+        
+        return success;
         
     } catch (Exception e) {
-        // Log error but don't fail the entire operation
-        System.err.println("Failed to revoke GitHub token: " + e.getMessage());
+        System.err.println("❌ Failed to revoke GitHub token: " + e.getMessage());
+        e.printStackTrace();
         return false;
+    }
+}
+
+// ✅ Also update your deleteAccount method to handle revocation failure better:
+@DeleteMapping("/delete-account")
+public ResponseEntity<Map<String, Object>> deleteAccount(Authentication authentication) {
+    try {
+        User user = (User) authentication.getPrincipal();
+        
+        System.out.println("🗑️ Deleting account for user: " + user.getUsername());
+        
+        // Step 1: Try to revoke GitHub token
+        boolean tokenRevoked = revokeGitHubToken(user.getToken());
+        
+        if (!tokenRevoked) {
+            System.out.println("⚠️ Warning: GitHub token revocation failed, but continuing with account deletion");
+        }
+        
+        // Step 2: Delete user from database (this will cascade delete related data)
+        userRepository.delete(user);
+        
+        System.out.println("✅ Account deleted successfully for user: " + user.getUsername());
+        
+        Map<String, Object> response = new HashMap<>();
+        response.put("success", true);
+        response.put("message", "Account deleted successfully");
+        response.put("token_revoked", tokenRevoked);
+        response.put("deleted_user", user.getUsername());
+        
+        return ResponseEntity.ok(response);
+        
+    } catch (Exception e) {
+        System.err.println("❌ Error deleting account: " + e.getMessage());
+        e.printStackTrace();
+        return ResponseEntity.status(500)
+            .body(Map.of(
+                "success", false,
+                "error", "Failed to delete account: " + e.getMessage()
+            ));
     }
 }
 
