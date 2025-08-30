@@ -19,7 +19,7 @@ public interface RepoRepository extends JpaRepository<Repo, Long> {
 
 
     // Recherche par propriétaire
-    List<Repo> findByUser(User user);
+    //List<Repo> findByUser(User user);
 
    
     List<Repo> findByUserUserId(Long userId);

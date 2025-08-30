@@ -1,12 +1,13 @@
 package com.example.demo.repository;
 
 import org.springframework.data.jpa.repository.JpaRepository;
-
+import com.example.demo.repository.CiWorkflowRepository;
 import org.springframework.stereotype.Repository;
-
+import org.springframework.data.jpa.repository.Query; // Add this import
+import org.springframework.data.repository.query.Param; // Add 
 import com.example.demo.model.CiWorkflow;
 import com.example.demo.model.Repo;
-
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
