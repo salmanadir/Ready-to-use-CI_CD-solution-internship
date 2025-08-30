@@ -205,7 +205,7 @@ const deleteAccount = useCallback(async () => {
     login,
     token,
     deleteAccount,
-  }), [user, isAuthenticated, isLoading, apiClient, logout, login, token]);
+  }), [user, isAuthenticated, isLoading, apiClient, logout, login, token, deleteAccount]);
 
   return (
     <AuthContext.Provider value={value}>

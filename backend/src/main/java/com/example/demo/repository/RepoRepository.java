@@ -1,3 +1,4 @@
+
 package com.example.demo.repository;
 
 import com.example.demo.model.Repo;
@@ -18,7 +19,7 @@ public interface RepoRepository extends JpaRepository<Repo, Long> {
 
 
     // Recherche par propriétaire
-    List<Repo> findByUser(User user);
+    //List<Repo> findByUser(User user);
 
    
     List<Repo> findByUserUserId(Long userId);
@@ -32,7 +33,9 @@ public interface RepoRepository extends JpaRepository<Repo, Long> {
      
     List<Repo> findByFullName(String fullName);  
     Optional<Repo> findByFullNameAndUser(String fullName, User user);  
-    
+
+    List<Repo> findByUser(User user);  
+    List<Repo> findByUser_UserId(Long userId);
   
     @Query("SELECT r FROM Repo r WHERE r.user.id = :userId")  
     List<Repo> findByUserId(@Param("userId") Long userId);  

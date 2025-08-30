@@ -1,12 +1,12 @@
-// src/components/Navbar/Navbar.jsx
 import React, { useState, useRef, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 
 const Navbar = () => {
-  const { user, logout } = useAuth();
+  const { user, logout, deleteAccount } = useAuth(); // ✅ Get deleteAccount from AuthContext
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [isDeleting, setIsDeleting] = useState(false);
   const dropdownRef = useRef(null);
   const navigate = useNavigate();
   const location = useLocation();
@@ -39,6 +39,30 @@ const Navbar = () => {
     setIsDropdownOpen(false);
   };
 
+  // ✅ Delete account confirmation function
+  const confirmDeleteAccount = async () => {
+    setIsDeleting(true);
+    
+    try {
+      console.log('🗑️ Attempting to delete account...');
+      const success = await deleteAccount();
+      
+      if (success) {
+        console.log('✅ Account deleted successfully');
+        setShowDeleteModal(false);
+        navigate('/'); // Redirect to landing page
+      } else {
+        console.error('❌ Failed to delete account');
+        alert('Failed to delete account. Please try again.');
+      }
+    } catch (error) {
+      console.error('❌ Error deleting account:', error);
+      alert('An error occurred while deleting your account. Please try again.');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   // Check if currently on dashboard
   const isOnDashboard = location.pathname === '/dashboard';
 
@@ -68,7 +92,7 @@ const Navbar = () => {
                   alt={user?.username} 
                   className="w-10 h-10 rounded-full border-2 border-gray-600 group-hover:border-cyan-400/50 transition-colors"
                 />
-                {/* Only show name/email on larger screens and simplified */}
+                {/* Only show name/email on larger screens */}
                 <div className="hidden lg:block text-left">
                   <p className="text-gray-200 text-sm font-medium group-hover:text-white transition-colors">
                     {user?.username}
@@ -87,7 +111,6 @@ const Navbar = () => {
               {/* Dropdown Menu */}
               {isDropdownOpen && (
                 <div className="absolute right-0 mt-2 w-56 bg-gray-800 border border-gray-700 rounded-xl shadow-2xl overflow-hidden z-50">
-                  {/* Menu Items - NO USER INFO HEADER */}
                   <div className="py-2">
                     {/* Go to Landing Page */}
                     <button
@@ -146,7 +169,7 @@ const Navbar = () => {
         </div>
       </nav>
 
-      {/* Delete Account Modal */}
+      {/* ✅ Delete Account Modal */}
       {showDeleteModal && (
         <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="bg-gray-800 border border-gray-700 rounded-xl p-6 max-w-md w-full mx-4 shadow-2xl">
@@ -158,25 +181,42 @@ const Navbar = () => {
               </div>
               <h3 className="text-xl font-semibold text-white">Delete Account</h3>
             </div>
+            
             <p className="text-gray-400 mb-6">
-              Are you sure you want to delete your account? This action cannot be undone and you will lose all your data.
+              Are you sure you want to delete your account? This action cannot be undone and you will lose all your data including:
             </p>
+            
+            <ul className="text-gray-400 text-sm mb-6 space-y-1">
+              <li>• All connected repositories</li>
+              <li>• CI/CD workflows and configurations</li>
+              <li>• Deployment history</li>
+              <li>• Account settings and preferences</li>
+            </ul>
+            
             <div className="flex space-x-3">
               <button
                 onClick={() => setShowDeleteModal(false)}
-                className="flex-1 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors"
+                disabled={isDeleting}
+                className="flex-1 px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Cancel
               </button>
               <button
-                onClick={() => {
-                  // TODO: Implement delete account functionality
-                  console.log('Delete account');
-                  setShowDeleteModal(false);
-                }}
-                className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
+                onClick={confirmDeleteAccount}
+                disabled={isDeleting}
+                className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
               >
-                Delete
+                {isDeleting ? (
+                  <>
+                    <svg className="animate-spin -ml-1 mr-2 h-4 w-4 text-white" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
+                    </svg>
+                    Deleting...
+                  </>
+                ) : (
+                  'Delete Account'
+                )}
               </button>
             </div>
           </div>
