@@ -15,7 +15,7 @@ const Dashboard = () => {
       description: 'Connect and configure your GitHub repositories for deployment',
       icon: '📁',
       color: 'from-blue-500 to-blue-600',
-      path: '/select-repo'
+      path: '/dashboard/select-repo'
     },
     {
       id: 'generate-ci',
@@ -91,18 +91,6 @@ const Dashboard = () => {
                     </div>
                   </div>
                 ))}
-              </div>
-
-              {/* Quick Stats */}
-              <div className="grid grid-cols-2 gap-4 mt-6">
-                <div className="bg-gray-800/30 border border-gray-700/50 rounded-xl p-4 text-center">
-                  <div className="text-2xl font-bold text-cyan-400">0</div>
-                  <div className="text-gray-400 text-sm">Active Deployments</div>
-                </div>
-                <div className="bg-gray-800/30 border border-gray-700/50 rounded-xl p-4 text-center">
-                  <div className="text-2xl font-bold text-green-400">100%</div>
-                  <div className="text-gray-400 text-sm">Success Rate</div>
-                </div>
               </div>
             </div>
 

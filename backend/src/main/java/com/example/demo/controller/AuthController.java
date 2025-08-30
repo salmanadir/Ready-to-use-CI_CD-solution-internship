@@ -171,49 +171,27 @@ public ResponseEntity<Map<String, Object>> refreshToken(Authentication authentic
         "message", "Token refreshed"
     ));
 }
-    @DeleteMapping("/delete-account")
-    public ResponseEntity<Map<String, Object>> deleteAccount(Authentication authentication) {
-    try {
-        User user = (User) authentication.getPrincipal();
-        
-        // Step 1: Revoke GitHub token
-        revokeGitHubToken(user.getToken());
-        
-        // Step 2: Delete user completely
-        userRepository.delete(user);
-        
-        Map<String, Object> response = new HashMap<>();
-        response.put("success", true);
-        response.put("message", "Account deleted successfully");
-        response.put("deleted_user", user.getUsername());
-        
-        return ResponseEntity.ok(response);
-        
-    } catch (Exception e) {
-        return ResponseEntity.status(500)
-            .body(Map.of(
-                "success", false,
-                "error", "Failed to delete account: " + e.getMessage()
-            ));
-    }
-    }
     private boolean revokeGitHubToken(String accessToken) {
     if (accessToken == null || accessToken.isEmpty()) {
+        System.out.println("🔍 No token to revoke");
         return true; // Nothing to revoke
     }
     
     try {
         RestTemplate restTemplate = new RestTemplate();
         
-        // GitHub's token revocation endpoint
-        String revokeUrl = "https://api.github.com/applications/" + clientId + "/token";
+        // ✅ CORRECT: Use the user token revocation endpoint
+        String revokeUrl = "https://api.github.com/applications/" + clientId + "/grant";
         
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.setBasicAuth(clientId, clientSecret); // Basic auth with client credentials
         
+        // ✅ CORRECT: Send access_token in request body
         Map<String, String> requestBody = Map.of("access_token", accessToken);
         HttpEntity<Map<String, String>> request = new HttpEntity<>(requestBody, headers);
+        
+        System.out.println("🗑️ Attempting to revoke GitHub token...");
         
         ResponseEntity<String> response = restTemplate.exchange(
             revokeUrl, 
@@ -221,13 +199,55 @@ public ResponseEntity<Map<String, Object>> refreshToken(Authentication authentic
             request, 
             String.class
         );
-        // GitHub returns 204 No Content on successful revocation
-        return response.getStatusCode().is2xxSuccessful();
+        
+        boolean success = response.getStatusCode().is2xxSuccessful();
+        System.out.println("🔍 GitHub token revocation status: " + response.getStatusCode() + " - " + (success ? "SUCCESS" : "FAILED"));
+        
+        return success;
         
     } catch (Exception e) {
-        // Log error but don't fail the entire operation
-        System.err.println("Failed to revoke GitHub token: " + e.getMessage());
+        System.err.println("❌ Failed to revoke GitHub token: " + e.getMessage());
+        e.printStackTrace();
         return false;
+    }
+}
+
+// ✅ Also update your deleteAccount method to handle revocation failure better:
+@DeleteMapping("/delete-account")
+public ResponseEntity<Map<String, Object>> deleteAccount(Authentication authentication) {
+    try {
+        User user = (User) authentication.getPrincipal();
+        
+        System.out.println("🗑️ Deleting account for user: " + user.getUsername());
+        
+        // Step 1: Try to revoke GitHub token
+        boolean tokenRevoked = revokeGitHubToken(user.getToken());
+        
+        if (!tokenRevoked) {
+            System.out.println("⚠️ Warning: GitHub token revocation failed, but continuing with account deletion");
+        }
+        
+        // Step 2: Delete user from database (this will cascade delete related data)
+        userRepository.delete(user);
+        
+        System.out.println("✅ Account deleted successfully for user: " + user.getUsername());
+        
+        Map<String, Object> response = new HashMap<>();
+        response.put("success", true);
+        response.put("message", "Account deleted successfully");
+        response.put("token_revoked", tokenRevoked);
+        response.put("deleted_user", user.getUsername());
+        
+        return ResponseEntity.ok(response);
+        
+    } catch (Exception e) {
+        System.err.println("❌ Error deleting account: " + e.getMessage());
+        e.printStackTrace();
+        return ResponseEntity.status(500)
+            .body(Map.of(
+                "success", false,
+                "error", "Failed to delete account: " + e.getMessage()
+            ));
     }
 }
 
