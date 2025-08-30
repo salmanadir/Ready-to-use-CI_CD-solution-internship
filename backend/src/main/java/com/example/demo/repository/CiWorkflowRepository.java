@@ -36,6 +36,8 @@ public interface CiWorkflowRepository extends JpaRepository<CiWorkflow, Long> {
     // Trouver les workflows entre deux dates
     List<CiWorkflow> findByCreatedAtBetween(LocalDateTime startDate, LocalDateTime endDate);
 
+    List<CiWorkflow> findByRepo_User_UserId(Long userId);
+    
     // Requête personnalisée pour trouver un workflow avec ses CD workflows
     @Query("SELECT c FROM CiWorkflow c LEFT JOIN FETCH c.cdWorkflows WHERE c.ciWorkflowId = :ciWorkflowId")
     Optional<CiWorkflow> findByIdWithCdWorkflows(@Param("ciWorkflowId") Long ciWorkflowId);

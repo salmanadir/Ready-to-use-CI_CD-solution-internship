@@ -12,6 +12,9 @@ import com.example.demo.model.User;
 import com.example.demo.repository.UserRepository;
 import org.springframework.security.core.Authentication;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import java.net.URLEncoder;
+
 import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
@@ -38,7 +41,7 @@ public class AuthController {
     private long jwtExpiration;
 
     private final UserRepository userRepository;
-
+    private final ObjectMapper objectMapper = new ObjectMapper(); // remember this line in front
     public AuthController(UserRepository userRepository) {
         this.userRepository = userRepository;
     }
@@ -55,8 +58,8 @@ public class AuthController {
                 .build();
     }
 
-    @GetMapping("/callback")
-    public ResponseEntity<?> callback(@RequestParam("code") String code) {
+    @GetMapping("backend/test/delete/callback")
+    public ResponseEntity<?> callback_backend(@RequestParam("code") String code) {
         try {
             // Step 1: Exchange code for access token
             String accessToken = exchangeCodeForToken(code);
@@ -98,6 +101,65 @@ public class AuthController {
                 .body(Map.of("error", "Authentication failed: " + e.getMessage()));
         }
     }
+    @GetMapping("/callback")
+public ResponseEntity<?> callback(@RequestParam("code") String code) {
+    try {
+        // Step 1: Exchange code for access token (your existing logic)
+        String accessToken = exchangeCodeForToken(code);
+        if (accessToken == null) {
+            // Redirect to frontend with error
+            return ResponseEntity.status(HttpStatus.FOUND)
+                .header("Location", "http://localhost:3000/auth/callback?error=Failed to obtain access token")
+                .build();
+        }
+
+        // Step 2: Fetch user info from GitHub (your existing logic)
+        Map<String, Object> userData = fetchGitHubUserData(accessToken);
+        if (userData == null || userData.get("id") == null) {
+            return ResponseEntity.status(HttpStatus.FOUND)
+                .header("Location", "http://localhost:3000/auth/callback?error=Failed to fetch user data")
+                .build();
+        }
+
+        // Step 3: Save or update user in database (your existing logic)
+        User user = saveOrUpdateUser(userData, accessToken);
+
+        // Step 4: Generate JWT (your existing logic)
+        String jwt = generateJWT(user);
+
+        // Step 5: Create user data for frontend
+        Map<String, Object> userForFrontend = Map.of(
+            "id", user.getId(),
+            "username", user.getUsername(),
+            "email", user.getEmail() != null ? user.getEmail() : "",
+            "avatarUrl", user.getAvatarUrl() != null ? user.getAvatarUrl() : "",
+            "githubId", user.getGithubId()
+        );
+
+        // Step 6: Redirect to frontend with token and user data
+        try {
+            String userJson = objectMapper.writeValueAsString(userForFrontend);
+            String redirectUrl = "http://localhost:5173/auth/callback" + 
+                "?token=" + URLEncoder.encode(jwt, StandardCharsets.UTF_8) + 
+                "&user=" + URLEncoder.encode(userJson, StandardCharsets.UTF_8);
+                
+            return ResponseEntity.status(HttpStatus.FOUND)
+                .header("Location", redirectUrl)
+                .build();
+                
+        } catch (Exception jsonException) {
+            return ResponseEntity.status(HttpStatus.FOUND)
+                .header("Location", "http://localhost:5173/auth/callback?error=Failed to process user data")
+                .build();
+        }
+
+    } catch (Exception e) {
+        e.printStackTrace();
+        return ResponseEntity.status(HttpStatus.FOUND)
+            .header("Location", "http://localhost:5173/auth/callback?error=" + URLEncoder.encode("Authentication failed: " + e.getMessage(), StandardCharsets.UTF_8))
+            .build();
+    }
+}
     @PostMapping("/refresh")
 public ResponseEntity<Map<String, Object>> refreshToken(Authentication authentication) {
     User user = (User) authentication.getPrincipal();

@@ -2,34 +2,35 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 
 const History = () => {
-  const { user } = useAuth();
+  const { user, token } = useAuth(); // ✅ Get token from AuthContext
   const [historyData, setHistoryData] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [selectedFile, setSelectedFile] = useState(null);
-  const [isRealData, setIsRealData] = useState(false); // ✅ Track if data is real
+  const [isRealData, setIsRealData] = useState(false);
 
   // Fetch history data from backend
   const fetchHistoryData = async () => {
     try {
       setLoading(true);
-      const token = localStorage.getItem('token');
       
       if (!token) {
         throw new Error('No authentication token found');
       }
 
       console.log('🔍 Fetching history data...');
+      console.log('🔑 Token exists:', !!token);
 
       const response = await fetch('http://localhost:8080/api/history/user-activity', {
         method: 'GET',
         headers: {
-          'Authorization': `Bearer ${token}`,
+          'Authorization': `Bearer ${token}`, // ✅ Use token from AuthContext
           'Content-Type': 'application/json'
         }
       });
 
       console.log('📡 Response status:', response.status);
+      console.log('📡 Response ok:', response.ok);
 
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -86,12 +87,14 @@ const History = () => {
     return date.toLocaleDateString();
   };
 
-  // Real-time updates using polling
+  // Real-time updates using polling - ✅ Only fetch when token is available
   useEffect(() => {
-    fetchHistoryData();
-    const interval = setInterval(fetchHistoryData, 30000);
-    return () => clearInterval(interval);
-  }, [user]);
+    if (token) {
+      fetchHistoryData();
+      const interval = setInterval(fetchHistoryData, 30000);
+      return () => clearInterval(interval);
+    }
+  }, [user, token]); // ✅ Added token as dependency
 
   const getStatusColor = (status) => {
     switch (status) {
@@ -175,6 +178,29 @@ const History = () => {
     </div>
   );
 
+  // ✅ Show loading if no token yet (authentication still in progress)
+  if (!token) {
+    return (
+      <div className="space-y-6">
+        <div className="flex items-center justify-between">
+          <h2 className="text-2xl font-bold text-white">Recent Activity</h2>
+          <div className="w-8 h-8 bg-gray-500/20 rounded-lg flex items-center justify-center">
+            <span className="text-lg">🔐</span>
+          </div>
+        </div>
+        
+        <div className="bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-xl p-6">
+          <div className="text-center py-8">
+            <div className="w-16 h-16 bg-gray-700/30 rounded-full flex items-center justify-center mx-auto mb-4">
+              <span className="text-2xl">🔐</span>
+            </div>
+            <p className="text-gray-400">Authenticating...</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (loading) {
     return (
       <div className="space-y-6">
@@ -215,11 +241,15 @@ const History = () => {
             <span className="text-lg">🔄</span>
           </button>
           {error && (
-            <div className="w-2 h-2 bg-red-500 rounded-full" title="Connection error"></div>
+            <div className="w-2 h-2 bg-red-500 rounded-full" title={`Connection error: ${error}`}></div>
           )}
           {/* ✅ Debug indicator */}
           {isRealData && (
-            <div className="w-2 h-2 bg-green-500 rounded-full" title="Real data"></div>
+            <div className="w-2 h-2 bg-green-500 rounded-full" title="Real data loaded"></div>
+          )}
+          {/* ✅ Auth indicator */}
+          {token && (
+            <div className="w-2 h-2 bg-blue-500 rounded-full" title="Authenticated"></div>
           )}
         </div>
       </div>
@@ -242,7 +272,7 @@ const History = () => {
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center justify-between mb-1">
                     <h4 className="text-white font-medium text-sm truncate">
-                      {item.repo}
+                      {item.repo || item.repoName}
                     </h4>
                     <span className="text-gray-500 text-xs flex-shrink-0 ml-2">
                       {item.timestamp}
@@ -273,7 +303,7 @@ const History = () => {
               </div>
             ))
           ) : (
-            // ✅ New empty state for users with no data
+            // ✅ Empty state for users with no data
             <div className="text-center py-12">
               <div className="w-20 h-20 bg-gray-700/30 rounded-full flex items-center justify-center mx-auto mb-6">
                 <span className="text-3xl">🌟</span>

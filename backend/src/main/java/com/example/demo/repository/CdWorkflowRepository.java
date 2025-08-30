@@ -16,6 +16,10 @@ import java.util.List;
 @Repository
 public interface CdWorkflowRepository extends JpaRepository<CdWorkflow, Long> {
 
+
+    List<CdWorkflow> findByCiWorkflow_Repo_User_Id(Long userId);
+
+
     // Recherche par CI workflow
     List<CdWorkflow> findByCiWorkflow(CiWorkflow ciWorkflow);
 
