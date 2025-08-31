@@ -27,7 +27,7 @@ const RepoSelectionPage = () => {
   // Simulation temporaire d'authentification JWT  
   const simulateAuth = () => {  
    
-    const mockJWT = 'eyJhbGciOiJIUzM4NCJ9.eyJzdWIiOiJBc21hSG1pZGE5OSIsImdpdGh1YklkIjoxNTYyNDM4MDcsInVzZXJJZCI6MSwiaWF0IjoxNzU2MzI3NjQ0LCJleHAiOjE3NTYzNjM2NDR9.-SYX7WyA1CWcnql8UOL1Eg-MyThGomgDRwOEwevZfogyjgScfoNrkV1k-86drmJ7';  
+    const mockJWT = 'eyJhbGciOiJIUzM4NCJ9.eyJzdWIiOiJBc21hSG1pZGE5OSIsImdpdGh1YklkIjoxNTYyNDM4MDcsInVzZXJJZCI6MSwiaWF0IjoxNzU2NjAyNjIwLCJleHAiOjE3NTY2Mzg2MjB9.poMb_6HeAvBDN7dFAmHk4FpHbmufdAoTCpJw5sLyOqI4QZjApWDlnNTHVzuuwG-O';  
     localStorage.setItem('authToken', mockJWT);  
   };  
   
