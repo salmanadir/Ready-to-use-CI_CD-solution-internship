@@ -29,20 +29,26 @@ export function previewDocker(payload) {
 }
 
 export function applyDockerfile(payload) {
-  return postJSON("/api/workflows/dockerfile/apply", payload);
+  // 👇 garantit une stratégie côté docker, par défaut UPDATE_IF_EXISTS
+  const docker = {
+    dockerfileStrategy: payload?.docker?.dockerfileStrategy || "UPDATE_IF_EXISTS",
+    ...(payload?.docker || {}),
+  };
+  return postJSON("/api/workflows/dockerfile/apply", { ...payload, docker });
 }
 
 export function previewCi(payload) {
   // par défaut on reste prudent: UPDATE_IF_EXISTS
   return postJSON("/api/workflows/ci/preview", {
-    fileHandlingStrategy: "UPDATE_IF_EXISTS",
+    fileHandlingStrategy: payload?.fileHandlingStrategy || "UPDATE_IF_EXISTS",
     ...payload,
   });
 }
 
 export function generateCi(payload) {
+  // 👇 permet d’overrider (FAIL_IF_EXISTS | CREATE_NEW_ALWAYS | UPDATE_IF_EXISTS)
   return postJSON("/api/workflows/generate", {
-    fileHandlingStrategy: "UPDATE_IF_EXISTS",
+    fileHandlingStrategy: payload?.fileHandlingStrategy || "UPDATE_IF_EXISTS",
     ...payload,
   });
 }

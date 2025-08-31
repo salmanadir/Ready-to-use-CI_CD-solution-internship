@@ -20,6 +20,78 @@ function buildSingleTechStackInfo(analysis) {
   };
 }
 
+/* =========================
+   Helpers messages + stratégie
+   ========================= */
+function humanizeCiSuccess(res, n) {
+  if (Array.isArray(res?.workflows)) {
+    const count = res.workflows.length;
+    if (count === 0) return { type: "info", message: "No changes to push." };
+    return { type: "success", message: `Pushed ${count} workflow(s).` };
+  }
+  const msg = res?.message || "";
+  const low = msg.toLowerCase();
+  if (low.includes("skipped") || low.includes("nothing to apply") || low.includes("no changes")) {
+    return { type: "info", message: msg || "No changes (SKIPPED)." };
+  }
+  if (low.includes("updated") || low.includes("created") || low.includes("pushed")) {
+    return { type: "success", message: msg };
+  }
+  return { type: "success", message: msg || (n ? `Pushed ${n} workflow(s).` : "Pushed.") };
+}
+
+function humanizeCiError(err, strategy) {
+  const raw = (err?.payload?.message || err?.message || "Unknown error.").trim();
+  const s = err?.status;
+
+  // Cas backend "Unexpected error: null"
+  if (/^unexpected error:\s*null$/i.test(raw)) {
+    return "Some files already exists. Try to push only unexisted. Check your GitHub repo and branch.";
+  }
+
+  if (s === 401) return "Authentication required or repository not owned.";
+  if (s === 400) {
+    const low = raw.toLowerCase();
+    if (low.includes("github token not found")) {
+      return "GitHub token not found for user — connect your GitHub account.";
+    }
+    if (low.includes("github connection failed")) {
+      return "GitHub connection failed — check your token permissions.";
+    }
+    if (String(strategy).toUpperCase() === "FAIL_IF_EXISTS" && low.includes("exists")) {
+      return "File already exists and strategy is FAIL_IF_EXISTS — generation aborted.";
+    }
+    return raw;
+  }
+  if (s === 428) {
+    return "Dockerfile not applied yet — preview & apply the Dockerfile first.";
+  }
+  if (s === 500 && /^io error:/i.test(raw)) {
+    return raw.replace(/^io error:\s*/i, "I/O error: ");
+  }
+  return raw;
+}
+
+// Pré-check côté UI avant d’appeler /generate
+function preflightForStatus(status, strategy) {
+  const strat = String(strategy || "UPDATE_IF_EXISTS").toUpperCase();
+  const st = (status || "").toUpperCase(); // NOT_FOUND | IDENTICAL | DIFFERENT
+
+  // IDENTICAL + UPDATE_IF_EXISTS => rien à faire
+  if (st === "IDENTICAL" && strat === "UPDATE_IF_EXISTS") {
+    return { block: true, type: "info", message: "Already up to date — nothing to push." };
+  }
+  // Fichier existe ET FAIL_IF_EXISTS => erreur amont
+  if ((st === "IDENTICAL" || st === "DIFFERENT") && strat === "FAIL_IF_EXISTS") {
+    return {
+      block: true,
+      type: "error",
+      message: "File already exists and strategy is FAIL_IF_EXISTS — choose UPDATE_IF_EXISTS or CREATE_NEW_ALWAYS.",
+    };
+  }
+  return { block: false };
+}
+
 export default function CiPreview() {
   const nav = useNavigate();
   const { repoId, analysis, dockerOptions, setToast } = useApp();
@@ -39,31 +111,40 @@ export default function CiPreview() {
   const [previews, setPreviews] = useState([]); // [{service,filePath,status,content}]
   const [selectedWD, setSelectedWD] = useState(null);
 
-  // --- load preview
-  useEffect(() => {
+  // modal CD
+  const [showCdModal, setShowCdModal] = useState(false);
+
+  // --- helper: reload preview (réutilisé après push)
+  async function refreshPreview() {
     if (!repoId || !analysis) return;
-    (async () => {
-      try {
-        setLoading(true);
-        if (mode === "multi") {
-          const res = await previewCi({ repoId, services, docker: dockerOptions });
-          const arr = res?.previews || [];
-          setPreviews(arr);
-          setSelectedWD(arr[0]?.service || services[0]?.workingDirectory || ".");
-        } else {
-          const tech = buildSingleTechStackInfo(analysis);
-          const res = await previewCi({ repoId, techStackInfo: tech, docker: dockerOptions });
-          setSingleYaml(res?.content || "");
-          setSinglePath(res?.filePath || ".github/workflows/ci.yml");
-          setSingleStatus(res?.status || "NOT_FOUND");
-        }
-      } catch (e) {
-        setToast({ type: "error", message: e.message || "Failed to preview CI." });
-      } finally {
-        setLoading(false);
+    try {
+      setLoading(true);
+      if (mode === "multi") {
+        const res = await previewCi({ repoId, services, docker: dockerOptions });
+        const arr = res?.previews || [];
+        setPreviews(arr);
+        setSelectedWD((prev) => {
+          if (!prev) return arr[0]?.service || services[0]?.workingDirectory || ".";
+          const still = arr.find((p) => (p.service || ".") === prev);
+          return still ? prev : (arr[0]?.service || services[0]?.workingDirectory || ".");
+        });
+      } else {
+        const tech = buildSingleTechStackInfo(analysis);
+        const res = await previewCi({ repoId, techStackInfo: tech, docker: dockerOptions });
+        setSingleYaml(res?.content || "");
+        setSinglePath(res?.filePath || ".github/workflows/ci.yml");
+        setSingleStatus(res?.status || "NOT_FOUND");
       }
-    })();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    } catch (e) {
+      setToast({ type: "error", message: e.message || "Failed to preview CI.", position: "center" });
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    refreshPreview();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repoId, analysis]);
 
   // --- computed for multi
@@ -84,39 +165,93 @@ export default function CiPreview() {
     { label: "Status", value: shownStatus },
   ];
 
+  // --- all applied ?
+  const allApplied = mode === "multi"
+    ? (previews.length > 0 && previews.every((p) => p.status === "IDENTICAL"))
+    : (singleStatus === "IDENTICAL");
+
   // --- push handlers
   async function pushOne() {
+    const currentStrategy = "UPDATE_IF_EXISTS"; // CHANGE ici si besoin
     try {
       setPushing(true);
+
+      // Pré-check par statut
+      const statusToCheck = mode === "multi" ? (current?.status || "NOT_FOUND") : singleStatus;
+      const pf = preflightForStatus(statusToCheck, currentStrategy);
+      if (pf.block) {
+        setToast({ type: pf.type, message: pf.message, position: "center" });
+        return;
+      }
+
       if (mode === "multi") {
-        // push uniquement le service sélectionné
         const svc = services.find((s) => s.workingDirectory === (selectedWD || "."));
-        const res = await generateCi({ repoId, services: [svc], docker: dockerOptions });
-        const ok = Array.isArray(res?.workflows) && res.workflows.length > 0;
-        setToast({ type: ok ? "success" : "info", message: "Pushed. Check your repo." });
+        const res = await generateCi({
+          repoId,
+          services: [svc],
+          docker: dockerOptions,
+          fileHandlingStrategy: currentStrategy,
+        });
+        const { type, message } = humanizeCiSuccess(res);
+        setToast({ type, message, position: "center" });
       } else {
         const tech = buildSingleTechStackInfo(analysis);
-        const res = await generateCi({ repoId, techStackInfo: tech, docker: dockerOptions });
-        setToast({ type: "success", message: "Pushed. Check your repo." });
-        // optionnel: mettre à jour status local
+        const res = await generateCi({
+          repoId,
+          techStackInfo: tech,
+          docker: dockerOptions,
+          fileHandlingStrategy: currentStrategy,
+        });
+        const { type, message } = humanizeCiSuccess(res);
+        setToast({ type, message, position: "center" });
         if (res?.filePath) setSinglePath(res.filePath);
         setSingleStatus("IDENTICAL");
       }
+      await refreshPreview();
     } catch (e) {
-      setToast({ type: "error", message: e.message || "Push failed." });
+      setToast({ type: "error", message: humanizeCiError(e, currentStrategy), position: "center" });
     } finally {
       setPushing(false);
     }
   }
 
   async function pushAll() {
+    const currentStrategy = "UPDATE_IF_EXISTS";
     try {
       setPushing(true);
-      const res = await generateCi({ repoId, services, docker: dockerOptions });
+
+      if (mode === "multi") {
+        // Pré-check global
+        const statuses = previews.map(p => (p.status || "NOT_FOUND").toUpperCase());
+        const allIdentical = statuses.length > 0 && statuses.every(s => s === "IDENTICAL");
+        const anyExists = statuses.some(s => s === "IDENTICAL" || s === "DIFFERENT");
+
+        if (allIdentical && currentStrategy === "UPDATE_IF_EXISTS") {
+          setToast({ type: "info", message: "Already up to date — nothing to push.", position: "center" });
+          return;
+        }
+        if (anyExists && currentStrategy === "FAIL_IF_EXISTS") {
+          setToast({
+            type: "error",
+            message: "Some files already exist and strategy is FAIL_IF_EXISTS — choose UPDATE_IF_EXISTS or CREATE_NEW_ALWAYS.",
+            position: "center",
+          });
+          return;
+        }
+      }
+
+      const res = await generateCi({
+        repoId,
+        services,
+        docker: dockerOptions,
+        fileHandlingStrategy: currentStrategy,
+      });
       const n = Array.isArray(res?.workflows) ? res.workflows.length : 0;
-      setToast({ type: "success", message: `Pushed ${n} workflow(s). Check your repo.` });
+      const { type, message } = humanizeCiSuccess(res, n);
+      setToast({ type, message, position: "center" });
+      await refreshPreview();
     } catch (e) {
-      setToast({ type: "error", message: e.message || "Bulk push failed." });
+      setToast({ type: "error", message: humanizeCiError(e, currentStrategy), position: "center" });
     } finally {
       setPushing(false);
     }
@@ -128,17 +263,102 @@ export default function CiPreview() {
       ? { label: pushing ? "Pushing…" : "Push to GitHub", onClick: pushOne, disabled: pushing || loading || !current }
       : { label: pushing ? "Pushing…" : "Push to GitHub", onClick: pushOne, disabled: pushing || loading };
 
-  const secondary = { label: "Back", onClick: () => nav("/docker/preview") };
+      const secondary = [
+        { label: "Back", onClick: () => nav("/docker/preview"), disabled: loading || pushing },
+        { label: "Refresh", onClick: refreshPreview, disabled: loading || pushing, title: "Recharger l’aperçu" },
+      ];
+  // bouton "Proceed to CD" n'apparaît que si tout est appliqué
+  const cdButton = allApplied ? (
+    <button
+      className="btn"
+      onClick={() => setShowCdModal(true)}
+      style={{ marginRight: 8 }}
+      title="Proceed to CD"
+    >
+      Proceed to CD
+    </button>
+  ) : null;
 
   const right =
     mode === "multi" ? (
-      <button className="btn" disabled={pushing || loading} onClick={pushAll} style={{ marginRight: 8 }}>
-        Push all
-      </button>
-    ) : null;
+      <>
+        <button className="btn" disabled={pushing || loading} onClick={pushAll} style={{ marginRight: 8 }}>
+          Push all
+        </button>
+        {cdButton}
+      </>
+    ) : (
+      cdButton
+    );
 
   return (
     <div className="page">
+      {/* Modal CD */}
+      {showCdModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Proceed to CD"
+          style={{
+            position: "fixed",
+            inset: 0,
+            background: "rgba(0,0,0,.45)",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            zIndex: 10000,
+            padding: 24,
+          }}
+        >
+          <div
+            style={{
+              width: "min(92vw, 600px)",
+              background: "#111827",
+              color: "#e5e7eb",
+              border: "1px solid #1f2937",
+              borderRadius: 16,
+              boxShadow: "0 20px 50px rgba(0,0,0,.35)",
+              position: "relative",
+              padding: 20,
+            }}
+          >
+            {/* Bouton X */}
+            <button
+              onClick={() => setShowCdModal(false)}
+              aria-label="Close modal"
+              title="Close"
+              style={{
+                position: "absolute",
+                top: 10,
+                right: 10,
+                background: "transparent",
+                color: "#9ca3af",
+                border: "1px solid #1f2937",
+                borderRadius: 8,
+                padding: "4px 8px",
+                cursor: "pointer",
+              }}
+            >
+              ✕
+            </button>
+
+            <h2 style={{ margin: "4px 0 8px", fontSize: 20 }}>Proceed to CD workflow?</h2>
+            <p style={{ margin: 0, color: "#94a3b8" }}>
+              All CI workflows are applied. Do you want to continue to the deployment (CD) stage?
+            </p>
+
+            <div style={{ display: "flex", gap: 8, justifyContent: "flex-end", marginTop: 16 }}>
+              <button className="btn ghost" onClick={() => setShowCdModal(false)} title="Denied">
+                Denied
+              </button>
+              <button className="btn primary" onClick={() => nav("/cd/preview")} title="Approve and go to CD">
+                Approve
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="container">
         <StepHeader
           title="CI — Preview"
@@ -148,11 +368,7 @@ export default function CiPreview() {
         <div className={`layout ${mode === "multi" ? "with-sidebar" : ""}`}>
           {mode === "multi" && (
             <aside className="sidebar">
-              <CiServiceList
-                previews={previews}
-                selectedWD={selectedWD}
-                onSelect={setSelectedWD}
-              />
+              <CiServiceList previews={previews} selectedWD={selectedWD} onSelect={setSelectedWD} />
             </aside>
           )}
 
@@ -171,7 +387,22 @@ export default function CiPreview() {
           </main>
         </div>
 
-        <StickyActions primary={primary} secondary={secondary} right={right} />
+        <StickyActions
+          primary={primary}
+          secondary={secondary}
+          right={right}
+          center={
+            <button
+              className="btn ghost"
+              onClick={() => nav("/")}
+              style={{ minWidth: 260, backgroundColor: "purple" }}
+              aria-label="Go back Home"
+              title="Go back Home"
+            >
+              Go back Home
+            </button>
+          }
+        />
       </div>
     </div>
   );

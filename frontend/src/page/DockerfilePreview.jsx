@@ -45,6 +45,44 @@ function pickPreview(plan) {
   return { content: "", source: "-" };
 }
 
+/* =========================
+   Helpers de messages
+   ========================= */
+function pickDockerSuccessToastTypeAndMessage(res) {
+  // Backend renvoie typiquement:
+  // - "Dockerfile generated & pushed"
+  // - "Dockerfile already present — nothing to apply"
+  // - "All Dockerfiles already present — nothing to apply"
+  const msg = res?.message || "";
+  const lower = msg.toLowerCase();
+  if (lower.includes("already present") || lower.includes("nothing to apply")) {
+    return { type: "info", message: msg || "Nothing to apply." };
+  }
+  return { type: "success", message: msg || "Dockerfile applied." };
+}
+
+function humanizeDockerError(err, strategy) {
+  const m = err?.payload?.message || err?.message || "Unknown error.";
+  const s = err?.status;
+
+  if (s === 401) return "Authentication required or repository not owned.";
+  if (s === 400) {
+    if (m.toLowerCase().includes("github token not found")) {
+      return "GitHub token not found for user — connect your GitHub account.";
+    }
+    // FAIL_IF_EXISTS → déjà présent
+    if (String(strategy).toUpperCase() === "FAIL_IF_EXISTS" &&
+        (m.toLowerCase().includes("already exists") || m.toLowerCase().includes("exists"))) {
+      return "File already exists and strategy is FAIL_IF_EXISTS — push aborted.";
+    }
+    return m;
+  }
+  if (s === 500 && /^io error:/i.test(m)) {
+    return m.replace(/^io error:\s*/i, "I/O error: ");
+  }
+  return m;
+}
+
 export default function DockerfilePreview() {
   const nav = useNavigate();
   const {
@@ -107,7 +145,11 @@ export default function DockerfilePreview() {
         setSelectedWD(plan?.[0]?.workingDirectory || null);
       }
     } catch (e) {
-      setToast({ type: "error", message: e.message || "Failed to preview Dockerfile." });
+      setToast({
+        type: "error",
+        message: e.message || "Failed to preview Dockerfile.",
+        position: "center",
+      });
     } finally {
       setLoading(false);
     }
@@ -115,6 +157,7 @@ export default function DockerfilePreview() {
 
   async function onApplyOne() {
     if (!currentPlan) return;
+    const strategy = (dockerOptions && dockerOptions.dockerfileStrategy) || "UPDATE_IF_EXISTS";
     try {
       setApplying(true);
       let payload;
@@ -127,26 +170,27 @@ export default function DockerfilePreview() {
         payload = { repoId, techStackInfo: tech, docker: dockerOptions };
       }
       const res = await applyDockerfile(payload);
-      const msg = res?.message || "Dockerfile applied.";
-      setToast({ type: "success", message: msg + (res.commitHash ? ` (commit ${res.commitHash})` : "") });
+      const { type, message } = pickDockerSuccessToastTypeAndMessage(res);
+      setToast({ type, message, position: "center" });
       await loadPreview();
     } catch (e) {
-      setToast({ type: "error", message: e.message || "Apply failed." });
+      setToast({ type: "error", message: humanizeDockerError(e, strategy), position: "center" });
     } finally {
       setApplying(false);
     }
   }
 
   async function onApplyAll() {
+    const strategy = (dockerOptions && dockerOptions.dockerfileStrategy) || "UPDATE_IF_EXISTS";
     try {
       setApplying(true);
       if (mode !== "multi") return;
       const res = await applyDockerfile({ repoId, services, docker: dockerOptions });
-      const msg = res?.message || "Dockerfiles applied.";
-      setToast({ type: "success", message: msg });
+      const { type, message } = pickDockerSuccessToastTypeAndMessage(res);
+      setToast({ type, message, position: "center" });
       await loadPreview();
     } catch (e) {
-      setToast({ type: "error", message: e.message || "Bulk apply failed." });
+      setToast({ type: "error", message: humanizeDockerError(e, strategy), position: "center" });
     } finally {
       setApplying(false);
     }
@@ -163,6 +207,22 @@ export default function DockerfilePreview() {
               <code>analysis</code>).
             </p>
           </div>
+          <StickyActions
+            primary={{ label: "Go to Analyze", onClick: () => nav("/analyze") }}
+            secondary={{ label: "Back", onClick: () => nav("/analyze") }}
+            right={null}
+            center={
+              <button
+                className="btn ghost"
+                onClick={() => nav("/")}
+                style={{ minWidth: 260 }}
+                aria-label="Go back Home"
+                title="Go back Home"
+              >
+                Go back Home
+              </button>
+            }
+          />
         </div>
       </div>
     );
@@ -179,10 +239,14 @@ export default function DockerfilePreview() {
       ]
     : [];
 
-  // prêt pour CI ? (serveur + fallback local)
+  // prêt pour CI ?
   const allReady = useMemo(() => {
     if (mode === "multi") {
-      return readyForCi && containerPlans.length > 0 && containerPlans.every(p => !p.shouldGenerateDockerfile);
+      return (
+        readyForCi &&
+        containerPlans.length > 0 &&
+        containerPlans.every((p) => !p.shouldGenerateDockerfile)
+      );
     }
     return readyForCi && currentPlan && !currentPlan.shouldGenerateDockerfile;
   }, [mode, readyForCi, containerPlans, currentPlan]);
@@ -190,24 +254,33 @@ export default function DockerfilePreview() {
   const canProceed = allReady && !loading && !applying;
 
   // Actions
-const primaryAction =
-currentPlan?.shouldGenerateDockerfile
-  ? {
-      label: applying ? "Applying…" : "Apply to GitHub",
-      onClick: onApplyOne,
-      disabled: applying || loading,
-    }
-  : {
-      label: "Next: Preview CI",
-      onClick: () => nav("/ci/preview"),
-      disabled: !canProceed, 
-    };
+  const primaryAction =
+    currentPlan?.shouldGenerateDockerfile
+      ? {
+          label: applying ? "Applying…" : "Apply to GitHub",
+          onClick: onApplyOne,
+          disabled: applying || loading,
+        }
+      : {
+          label: "Next: Preview CI",
+          onClick: () => nav("/ci/preview"),
+          disabled: !canProceed,
+        };
 
-
-  const secondaryAction =
-    mode === "multi"
-      ? { label: "Refresh", onClick: loadPreview, disabled: loading || applying }
-      : { label: "Back", onClick: () => { /* nav(-1) */ }, disabled: loading || applying };
+  // Back vers /analyze and refresh 
+  const secondaryAction = [
+    {
+      label: "Back",
+      onClick: () => nav("/analyze"),
+      disabled: loading || applying,
+    },
+    {
+      label: "Refresh",
+      onClick: loadPreview,
+      disabled: loading || applying,
+      title: "Refresh previews",
+    },
+  ];
 
   const rightAction =
     mode === "multi" ? (
@@ -217,7 +290,11 @@ currentPlan?.shouldGenerateDockerfile
         onClick={onApplyAll}
         style={{ marginRight: 8 }}
         aria-disabled={applying || loading || allReady}
-        title={allReady ? "All services already have a Dockerfile" : "Apply Dockerfile to all missing services"}
+        title={
+          allReady
+            ? "All services already have a Dockerfile"
+            : "Apply Dockerfile to all missing services"
+        }
       >
         Apply all missing
       </button>
@@ -252,14 +329,31 @@ currentPlan?.shouldGenerateDockerfile
               ) : (
                 <CodeViewer
                   content={chosen.content || ""}
-                  onCopy={() => setToast({ type: "info", message: "Copied to clipboard." })}
+                  onCopy={() =>
+                    setToast({ type: "info", message: "Copied to clipboard." })
+                  }
                 />
               )}
             </div>
           </main>
         </div>
 
-        <StickyActions primary={primaryAction} secondary={secondaryAction} right={rightAction} />
+        <StickyActions
+          primary={primaryAction}
+          secondary={secondaryAction}
+          right={rightAction}
+          center={
+            <button
+              className="btn ghost"
+              onClick={() => nav("/")}
+              style={{ minWidth: 260, backgroundColor: 'purple' }}
+              aria-label="Go back Home"
+              title="Go back Home"
+            >
+              Go back Home
+            </button>
+          }
+        />
       </div>
     </div>
   );
