@@ -83,7 +83,7 @@ const CDGeneration = () => {
 
   return (
     <div className="min-h-screen bg-gray-900 py-10 px-4 flex justify-center items-start">
-      <div className="w-full max-w-xl bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-xl p-8 shadow-lg">
+      <div className="w-full max-w-5xl bg-gray-800/50 backdrop-blur-sm border border-gray-700 rounded-xl p-8 shadow-lg">
         <div className="flex items-center mb-8">
           <div className="w-12 h-12 bg-purple-600/80 rounded-lg flex items-center justify-center mr-4">
             <span className="text-2xl">🚀</span>
