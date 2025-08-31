@@ -9,6 +9,7 @@ import AuthCallback from './pages/AuthCallback/Authcallback';
 import ProtectedRoute from './components/ProtectedRoute';
 import RepoAnalysisPage from './pages/RepoAnalysis/RepoAnalysisPage';
 import RepoSelectionPage from './pages/RepoSelection/RepoSelectionPage';
+import "@fortawesome/fontawesome-free/css/all.min.css";
 import './App.css'; 
 
 function App() {
