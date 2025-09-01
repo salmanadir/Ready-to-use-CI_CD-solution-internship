@@ -11,7 +11,7 @@ import "./RepoAnalysisPage.css";
 const ND = "Not detected";
 const safe = (v) => (v === undefined || v === null || v === "" ? ND : v);
 
-// Un service est supporté s’il est SPRING_BOOT (Maven/Gradle) ou NODE_JS
+// Un service est supporté s'il est SPRING_BOOT (Maven/Gradle) ou NODE_JS
 function isSupportedService(service) {
   const st = service?.stackType || "";
   if (st.includes("SPRING_BOOT")) {
@@ -227,6 +227,11 @@ export default function RepoAnalysisPage() {
   // bouton "Continue"
   const [showContinueButton, setShowContinueButton] = useState(false);
 
+  // État pour gérer l'édition des valeurs
+  const [editingField, setEditingField] = useState(null);
+  const [editingValue, setEditingValue] = useState("");
+  const [editingPath, setEditingPath] = useState("");
+
   // charger fichiers puis les révéler un par un
   useEffect(() => {
     let interval;
@@ -302,13 +307,160 @@ export default function RepoAnalysisPage() {
   // construit l'arbre dynamiquement
   const tree = useMemo(() => buildTree(visibleFiles), [visibleFiles]);
 
+  // Fonction pour démarrer l'édition d'un champ
+  const startEditing = (path, value) => {
+    setEditingPath(path);
+    setEditingValue(value);
+    setEditingField(path);
+  };
+
+  // -------------------- SAUVEGARDE BACKEND --------------------
+  const saveAnalysisToBackend = async () => {
+    try {
+      if (!analysis) {
+        console.error("Aucune analyse disponible pour la sauvegarde");
+        return;
+      }
+
+      const updatedData = {};
+
+      if (analysis.mode === "multi" && Array.isArray(analysis.services)) {
+        analysis.services.forEach((service, index) => {
+          if (service) {
+            updatedData[`services.${index}.buildTool`] = service.buildTool || "NONE";
+            updatedData[`services.${index}.javaVersion`] = service.javaVersion || "NONE";
+            updatedData[`services.${index}.workingDirectory`] = service.workingDirectory || ".";
+            updatedData[`services.${index}.language`] = service.language || "NONE";
+
+            if (service.projectDetails) {
+              updatedData[`services.${index}.projectDetails.springBootVersion`] = 
+                service.projectDetails.springBootVersion || "NONE";
+              updatedData[`services.${index}.projectDetails.framework`] = 
+                service.projectDetails.framework || "NONE";
+              updatedData[`services.${index}.projectDetails.nodeVersion`] = 
+                service.projectDetails.nodeVersion || "NONE";
+            }
+          }
+        });
+
+        updatedData.databaseType = analysis.databaseType || "NONE";
+        updatedData.databaseName = analysis.databaseName || "my_database";
+      } else if (analysis.mode === "single" && analysis.analysis) {
+        updatedData["analysis.buildTool"] = analysis.analysis.buildTool || "NONE";
+        updatedData["analysis.javaVersion"] = analysis.analysis.javaVersion || "NONE";
+        updatedData["analysis.workingDirectory"] = analysis.analysis.workingDirectory || ".";
+        updatedData["analysis.language"] = analysis.analysis.language || "NONE";
+        updatedData["analysis.databaseType"] = analysis.analysis.databaseType || "NONE";
+        updatedData["analysis.databaseName"] = analysis.analysis.databaseName || "my_database";
+
+        if (analysis.analysis.projectDetails) {
+          updatedData["analysis.projectDetails.springBootVersion"] = 
+            analysis.analysis.projectDetails.springBootVersion || "NONE";
+          updatedData["analysis.projectDetails.framework"] = 
+            analysis.analysis.projectDetails.framework || "NONE";
+          updatedData["analysis.projectDetails.nodeVersion"] = 
+            analysis.analysis.projectDetails.nodeVersion || "NONE";
+        }
+      }
+
+      console.log("Données à envoyer:", updatedData);
+
+      const response = await fetch(
+        `http://localhost:8080/api/stack-analysis/repository/${repo.repoId}/update-parameters`,
+        {
+          method: "PUT",
+          headers: getAuthHeaders(),
+          body: JSON.stringify(updatedData),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+
+      const data = await response.json();
+      if (data.success) {
+        alert("Paramètres sauvegardés avec succès !");
+      }
+    } catch (error) {
+      console.error("Erreur lors de la sauvegarde:", error);
+      alert(`Erreur lors de la sauvegarde: ${error.message}`);
+    }
+  };
+
+  // -------------------- ÉDITION LOCALE --------------------
+ const saveEdit = async () => {  
+  if (!analysis || !editingPath) return;  
+  
+  const pathParts = editingPath.split(".");  
+  const updatedAnalysis = JSON.parse(JSON.stringify(analysis)); // Deep clone  
+  
+  // Naviguer dans l'objet pour trouver le champ à modifier  
+  let current = updatedAnalysis;  
+  for (let i = 0; i < pathParts.length - 1; i++) {  
+    if (!current[pathParts[i]]) {  
+      current[pathParts[i]] = {};  
+    }  
+    current = current[pathParts[i]];  
+  }  
+  
+  // Mettre à jour la valeur  
+  current[pathParts[pathParts.length - 1]] = editingValue;  
+  
+  // IMPORTANT: Préserver les propriétés critiques pour l'affichage  
+  if (analysis.mode) updatedAnalysis.mode = analysis.mode;  
+  if (analysis._errors) updatedAnalysis._errors = analysis._errors;  
+  
+  // Debug pour diagnostiquer les problèmes  
+  console.log("Avant mise à jour:", analysis);  
+  console.log("Après mise à jour:", updatedAnalysis);  
+  console.log("Path modifié:", editingPath, "Nouvelle valeur:", editingValue);  
+  
+  setAnalysis(updatedAnalysis);  
+  setEditingField(null);  
+  setEditingValue("");  
+  setEditingPath("");  
+};
+
+  // Fonction pour annuler l'édition
+  const cancelEdit = () => {
+    setEditingField(null);
+    setEditingValue("");
+    setEditingPath("");
+  };
+
+  // Fonction pour gérer les changements dans l'input d'édition
+  const handleEditChange = (e) => {
+    setEditingValue(e.target.value);
+  };
+
+  // Fonction pour gérer la touche Entrée dans l'input d'édition
+  const handleEditKeyDown = (e) => {
+    if (e.key === "Enter") {
+      saveEdit();
+    } else if (e.key === "Escape") {
+      cancelEdit();
+    }
+  };
+
+  // -------------------- ACTIONS DES BOUTONS --------------------
   const onValidateGenerateCI = async () => {
-    alert("CI generation triggered (stub).");
-    setAnalysisOpen(false);
-    setShowContinueButton(false);
+    // Afficher le message de confirmation
+    const confirmMessage = "Please make sure of the parameters' values because these parameters will be used in the next process. Do you want to continue?";
+    
+    if (window.confirm(confirmMessage)) {
+      // SEULEMENT ICI : Sauvegarder automatiquement après confirmation
+      await saveAnalysisToBackend();
+      
+      // Procéder à la génération CI
+      alert("CI generation triggered (stub).");
+      setAnalysisOpen(false);
+      setShowContinueButton(false);
+    }
   };
 
   const onCancel = () => {
+    // PAS de sauvegarde automatique - juste fermer
     setAnalysisOpen(false);
     setShowContinueButton(true);
   };
@@ -316,6 +468,41 @@ export default function RepoAnalysisPage() {
   const onContinueAnalysis = () => {
     setAnalysisOpen(true);
     setShowContinueButton(false);
+  };
+
+  // Composant pour afficher un champ avec possibilité d'édition
+  const EditableField = ({ label, value, path }) => {
+    const isEditing = editingField === path;
+
+    return (
+      <div className="editable-field">
+        <strong>{label}:</strong>
+        {isEditing ? (
+          <div className="edit-input-container">
+            <input
+              type="text"
+              value={editingValue}
+              onChange={handleEditChange}
+              onKeyDown={handleEditKeyDown}
+              autoFocus
+              className="edit-input"
+            />
+            <button onClick={saveEdit} className="edit-confirm-btn">✓</button>
+            <button onClick={cancelEdit} className="edit-cancel-btn">✗</button>
+          </div>
+        ) : (
+          <span className="editable-value">
+            {value}
+            <i
+              className="fa-solid fa-pen-to-square edit-icon"
+              title="Edit"
+              onClick={() => startEditing(path, value)}
+              style={{ cursor: "pointer", marginLeft: "5px" }}
+            ></i>
+          </span>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -388,16 +575,14 @@ export default function RepoAnalysisPage() {
                 <div className="analysis-results">
                   <div className="service-section">
                     <div>
-                    <h4>Orchestrator:</h4>
-                    
-                    GitHub Actions{" "}
-                  
+                      <h4>Orchestrator:</h4>
+                      GitHub Actions{" "}
                     </div>
                   </div>
+
                   {/* Total Services */}
                   <div className="analysis-item">
                     <strong>Total Services:</strong> {analysis.services?.length || 0}{" "}
-                
                   </div>
 
                   {/* MODE MULTI */}
@@ -420,73 +605,81 @@ export default function RepoAnalysisPage() {
                           {/* Backend Details */}
                           {service.stackType?.includes("SPRING_BOOT") && (
                             <>
-                              <div>
-                                <strong>Framework:</strong> Spring Boot{" "}
-                                <i className="fa-solid fa-pen-to-square edit-icon" title="Edit"></i>
-                              </div>
-                              <div>
-                                <strong>Build Tool:</strong> {safe(service.buildTool)}{" "}
-                                <i className="fa-solid fa-pen-to-square edit-icon" title="Edit"></i>
-                              </div>
-                              <div>
-                                <strong>Spring Version:</strong>{" "}
-                                {safe(service.projectDetails?.springBootVersion)}{" "}
-                                <i className="fa-solid fa-pen-to-square edit-icon" title="Edit"></i>
-                              </div>
-                              <div>
-                                <strong>Working Directory:</strong>{" "}
-                                {safe(service.workingDirectory)}{" "}
-                                <i className="fa-solid fa-pen-to-square edit-icon" title="Edit"></i>
-                              </div>
-                              <div>
-                                <strong>Java Version:</strong> {safe(service.javaVersion)}{" "}
-                                <i className="fa-solid fa-pen-to-square edit-icon" title="Edit"></i>
-                              </div>
+                              <EditableField
+                                label="Framework"
+                                value="Spring Boot"
+                                path={`services.${index}.stackType`}
+                              />
+                              <EditableField
+                                label="Build Tool"
+                                value={safe(service.buildTool)}
+                                path={`services.${index}.buildTool`}
+                              />
+                              <EditableField
+                                label="Spring Version"
+                                value={safe(service.projectDetails?.springBootVersion)}
+                                path={`services.${index}.projectDetails.springBootVersion`}
+                              />
+                              <EditableField
+                                label="Working Directory"
+                                value={safe(service.workingDirectory)}
+                                path={`services.${index}.workingDirectory`}
+                              />
+                              <EditableField
+                                label="Java Version"
+                                value={safe(service.javaVersion)}
+                                path={`services.${index}.javaVersion`}
+                              />
                             </>
                           )}
 
                           {/* Frontend Details */}
                           {service.stackType === "NODE_JS" && (
                             <>
-                              <div>
-                                <strong>Stack Type:</strong> Node.js{" "}
-                                <i className="fa-solid fa-pen-to-square edit-icon" title="Edit"></i>
-                              </div>
-                              <div>
-                                <strong>Framework:</strong>{" "}
-                                {safe(service.projectDetails?.framework)}{" "}
-                                <i className="fa-solid fa-pen-to-square edit-icon" title="Edit"></i>
-                              </div>
-                              <div>
-                                <strong>Build Tool:</strong> {safe(service.buildTool)}{" "}
-                                <i className="fa-solid fa-pen-to-square edit-icon" title="Edit"></i>
-                              </div>
-                              <div>
-                                <strong>Language:</strong> {safe(service.language)}{" "}
-                                <i className="fa-solid fa-pen-to-square edit-icon" title="Edit"></i>
-                              </div>
-                              <div>
-                                <strong>Node Version:</strong>{" "}
-                                {safe(service.projectDetails?.nodeVersion)}{" "}
-                                <i className="fa-solid fa-pen-to-square edit-icon" title="Edit"></i>
-                              </div>
+                              <EditableField
+                                label="Stack Type"
+                                value="Node.js"
+                                path={`services.${index}.stackType`}
+                              />
+                              <EditableField
+                                label="Framework"
+                                value={safe(service.projectDetails?.framework)}
+                                path={`services.${index}.projectDetails.framework`}
+                              />
+                              <EditableField
+                                label="Build Tool"
+                                value={safe(service.buildTool)}
+                                path={`services.${index}.buildTool`}
+                              />
+                              <EditableField
+                                label="Language"
+                                value={safe(service.language)}
+                                path={`services.${index}.language`}
+                              />
+                              <EditableField
+                                label="Node Version"
+                                value={safe(service.projectDetails?.nodeVersion)}
+                                path={`services.${index}.projectDetails.nodeVersion`}
+                              />
                             </>
                           )}
                         </div>
                       ))}
 
-                      {/* Database Section (indicative) */}
+                      {/* Database Section */}
                       {analysis.services.some((s) => s.stackType?.includes("SPRING_BOOT")) && (
                         <div className="service-section">
                           <h4>Base de données:</h4>
-                          <div>
-                            <strong>Database Type:</strong> Detected (Spring Boot with JPA){" "}
-                            <i className="fa-solid fa-pen-to-square edit-icon" title="Edit"></i>
-                          </div>
-                          <div>
-                            <strong>Database Name:</strong> {ND}{" "}
-                            <i className="fa-solid fa-pen-to-square edit-icon" title="Edit"></i>
-                          </div>
+                          <EditableField
+                            label="Database Type"
+                            value="Detected (Spring Boot with JPA)"
+                            path="databaseType"
+                          />
+                          <EditableField
+                            label="Database Name"
+                            value={ND}
+                            path="databaseName"
+                          />
                         </div>
                       )}
                     </div>
@@ -506,55 +699,61 @@ export default function RepoAnalysisPage() {
 
                         {analysis.analysis.stackType?.includes("SPRING_BOOT") && (
                           <>
-                            <div>
-                              <strong>Framework:</strong> Spring Boot{" "}
-                              <i className="fa-solid fa-pen-to-square edit-icon" title="Edit"></i>
-                            </div>
-                            <div>
-                              <strong>Build Tool:</strong> {safe(analysis.analysis.buildTool)}{" "}
-                              <i className="fa-solid fa-pen-to-square edit-icon" title="Edit"></i>
-                            </div>
-                            <div>
-                              <strong>Spring Version:</strong>{" "}
-                              {safe(analysis.analysis.projectDetails?.springBootVersion)}{" "}
-                              <i className="fa-solid fa-pen-to-square edit-icon" title="Edit"></i>
-                            </div>
-                            <div>
-                              <strong>Working Directory:</strong>{" "}
-                              {safe(analysis.analysis.workingDirectory)}{" "}
-                              <i className="fa-solid fa-pen-to-square edit-icon" title="Edit"></i>
-                            </div>
-                            <div>
-                              <strong>Java Version:</strong> {safe(analysis.analysis.javaVersion)}{" "}
-                              <i className="fa-solid fa-pen-to-square edit-icon" title="Edit"></i>
-                            </div>
+                            <EditableField
+                              label="Framework"
+                              value="Spring Boot"
+                              path="analysis.stackType"
+                            />
+                            <EditableField
+                              label="Build Tool"
+                              value={safe(analysis.analysis.buildTool)}
+                              path="analysis.buildTool"
+                            />
+                            <EditableField
+                              label="Spring Version"
+                              value={safe(analysis.analysis.projectDetails?.springBootVersion)}
+                              path="analysis.projectDetails.springBootVersion"
+                            />
+                            <EditableField
+                              label="Working Directory"
+                              value={safe(analysis.analysis.workingDirectory)}
+                              path="analysis.workingDirectory"
+                            />
+                            <EditableField
+                              label="Java Version"
+                              value={safe(analysis.analysis.javaVersion)}
+                              path="analysis.javaVersion"
+                            />
                           </>
                         )}
 
                         {analysis.analysis.stackType === "NODE_JS" && (
                           <>
-                            <div>
-                              <strong>Stack Type:</strong> Node.js{" "}
-                              <i className="fa-solid fa-pen-to-square edit-icon" title="Edit"></i>
-                            </div>
-                            <div>
-                              <strong>Framework:</strong>{" "}
-                              {safe(analysis.analysis.projectDetails?.framework)}{" "}
-                              <i className="fa-solid fa-pen-to-square edit-icon" title="Edit"></i>
-                            </div>
-                            <div>
-                              <strong>Build Tool:</strong> {safe(analysis.analysis.buildTool)}{" "}
-                              <i className="fa-solid fa-pen-to-square edit-icon" title="Edit"></i>
-                            </div>
-                            <div>
-                              <strong>Language:</strong> {safe(analysis.analysis.language)}{" "}
-                              <i className="fa-solid fa-pen-to-square edit-icon" title="Edit"></i>
-                            </div>
-                            <div>
-                              <strong>Node Version:</strong>{" "}
-                              {safe(analysis.analysis.projectDetails?.nodeVersion)}{" "}
-                              <i className="fa-solid fa-pen-to-square edit-icon" title="Edit"></i>
-                            </div>
+                            <EditableField
+                              label="Stack Type"
+                              value="Node.js"
+                              path="analysis.stackType"
+                            />
+                            <EditableField
+                              label="Framework"
+                              value={safe(analysis.analysis.projectDetails?.framework)}
+                              path="analysis.projectDetails.framework"
+                            />
+                            <EditableField
+                              label="Build Tool"
+                              value={safe(analysis.analysis.buildTool)}
+                              path="analysis.buildTool"
+                            />
+                            <EditableField
+                              label="Language"
+                              value={safe(analysis.analysis.language)}
+                              path="analysis.language"
+                            />
+                            <EditableField
+                              label="Node Version"
+                              value={safe(analysis.analysis.projectDetails?.nodeVersion)}
+                              path="analysis.projectDetails.nodeVersion"
+                            />
                           </>
                         )}
                       </div>
@@ -564,23 +763,20 @@ export default function RepoAnalysisPage() {
                         analysis.analysis.databaseType !== "NONE" && (
                           <div className="service-section">
                             <h4>Base de données:</h4>
-                            <div>
-                              <strong>Database Type:</strong>{" "}
-                              {safe(analysis.analysis.databaseType)}{" "}
-                              <i className="fa-solid fa-pen-to-square edit-icon" title="Edit"></i>
-                            </div>
-                            <div>
-                              <strong>Database Name:</strong>{" "}
-                              {safe(analysis.analysis.databaseName)}{" "}
-                              <i className="fa-solid fa-pen-to-square edit-icon" title="Edit"></i>
-                            </div>
+                            <EditableField
+                              label="Database Type"
+                              value={safe(analysis.analysis.databaseType)}
+                              path="analysis.databaseType"
+                            />
+                            <EditableField
+                              label="Database Name"
+                              value={safe(analysis.analysis.databaseName)}
+                              path="analysis.databaseName"
+                            />
                           </div>
                         )}
                     </div>
                   )}
-
-                  {/* Orchestrator */}
-                  
                 </div>
               ) : (
                 <div className="no-analysis">
@@ -588,6 +784,8 @@ export default function RepoAnalysisPage() {
                 </div>
               )}
             </div>
+
+            {/* Actions du modal - SEULEMENT 2 BOUTONS */}
             <div className="modal-actions">
               <button className="btn btn-secondary" onClick={onCancel} disabled={isAnalyzing}>
                 Cancel

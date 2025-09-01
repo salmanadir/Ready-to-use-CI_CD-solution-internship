@@ -135,8 +135,43 @@
 .continue-btn:hover {
   opacity: 0.80; /* petit effet au survol */
 }
+/* 
+.edit-input-container {
+    background: linear-gradient(135deg, #423EE0 0%, #812DE2 100%);
+    padding: 10px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+} */
 
+.edit-input {
+   background: linear-gradient(135deg, #423EE0 0%, #812DE2 100%);
+  
+    padding: 3px;
+    border: none;
+    border-radius: 4px;
+    margin-right: 10px; /* Espace entre l'input et les boutons */
+    color: white;
+}
 
+.edit-confirm-btn {
+    background-color: #28a745; /* Vert */
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 5px 3px;
+    cursor: pointer;
+    margin-right: 5px; /* Espace entre les deux boutons */
+}
+
+.edit-cancel-btn {
+    background-color: #dc3545; /* Rouge */
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 5px 3px;
+    cursor: pointer;
+}
 
 .modal-header { padding:14px 16px; border-bottom:.5px solid rgba(255,255,255,.2); }
 .modal-body { padding:16px; color:#cbd5e1; }
