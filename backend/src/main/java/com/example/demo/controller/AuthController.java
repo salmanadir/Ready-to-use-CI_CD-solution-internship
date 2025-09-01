@@ -139,7 +139,7 @@ public ResponseEntity<?> callback(@RequestParam("code") String code) {
         // Step 6: Redirect to frontend with token and user data
         try {
             String userJson = objectMapper.writeValueAsString(userForFrontend);
-            String redirectUrl = "http://localhost:5173/auth/callback" + 
+            String redirectUrl = "http://localhost:3000/auth/callback" + 
                 "?token=" + URLEncoder.encode(jwt, StandardCharsets.UTF_8) + 
                 "&user=" + URLEncoder.encode(userJson, StandardCharsets.UTF_8);
                 
@@ -149,14 +149,14 @@ public ResponseEntity<?> callback(@RequestParam("code") String code) {
                 
         } catch (Exception jsonException) {
             return ResponseEntity.status(HttpStatus.FOUND)
-                .header("Location", "http://localhost:5173/auth/callback?error=Failed to process user data")
+                .header("Location", "http://localhost:3000/auth/callback?error=Failed to process user data")
                 .build();
         }
 
     } catch (Exception e) {
         e.printStackTrace();
         return ResponseEntity.status(HttpStatus.FOUND)
-            .header("Location", "http://localhost:5173/auth/callback?error=" + URLEncoder.encode("Authentication failed: " + e.getMessage(), StandardCharsets.UTF_8))
+            .header("Location", "http://localhost:3000/auth/callback?error=" + URLEncoder.encode("Authentication failed: " + e.getMessage(), StandardCharsets.UTF_8))
             .build();
     }
 }
