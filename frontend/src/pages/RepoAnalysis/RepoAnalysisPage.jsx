@@ -1,13 +1,13 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useLocation, useSearchParams, useNavigate } from "react-router-dom";
+import { useAuth } from "../../context/AuthContext";
 import "./RepoAnalysisPage.css";
 
-// -------------------- Helpers & Consts --------------------
+
 const ND = "NONE";
 const safe = (v) => (v === undefined || v === null || v === "" ? ND : v);
 const isND = (v) => v === ND || v === undefined || v === null || v === "";
 
-// Options autorisées par le backend
 const JAVA_OPTIONS = ["8", "11", "17", "21"];
 const BUILD_TOOLS = ["Maven", "Gradle", "npm"];
 const DB_TYPES = [
@@ -27,7 +27,7 @@ const NODE_FRAMEWORKS = [
   "Vanilla Node.js",
 ];
 
-// ---- Persist: ne plus réafficher le modal après confirmation pour ce repo ----
+
 const confirmedKey = (repoId) => `analysisConfirmed:${repoId}`;
 const getRepoConfirmed = (repoId) =>
   !!(repoId && localStorage.getItem(confirmedKey(repoId)) === "1");
@@ -37,7 +37,7 @@ const setRepoConfirmed = (repoId, v) => {
   else localStorage.removeItem(confirmedKey(repoId));
 };
 
-// Canonicalisation vers la casse attendue
+
 const canonBuildTool = (v) => {
   const x = (v || "").toLowerCase();
   if (x === "maven") return "Maven";
@@ -51,7 +51,7 @@ const canonFramework = (v) => (NODE_FRAMEWORKS.includes(v) ? v : "");
 const canonNodeVersion = (v) =>
   !v ? "" : v === "Latest" || /^\d+(\.\d+)*$/.test(v) ? v : "";
 
-// Un service est supporté s'il est SPRING_BOOT (Maven/Gradle) ou NODE_JS
+
 function isSupportedService(service) {
   const st = service?.stackType || "";
   if (st.includes("SPRING_BOOT")) {
@@ -69,7 +69,7 @@ function isSupportedService(service) {
   return { ok: false, reason: `Stack non supportée: ${safe(st)}.` };
 }
 
-// Normalise les champs (remplace les valeurs manquantes par "NONE")
+
 function normalizeService(s = {}) {
   return {
     ...s,
@@ -93,6 +93,27 @@ function normalizeService(s = {}) {
 function validateAndNormalizeAnalysis(raw) {
   const errors = [];
 
+
+  if (raw?.mode === "single" && raw?.analysis) {
+    const s = normalizeService(raw.analysis);
+    const chk = isSupportedService(s);
+    if (!chk.ok) errors.push(chk.reason);
+
+ 
+    return {
+      ok: chk.ok,
+      data: {
+        mode: "single",
+        analysis: s,
+        
+        databaseType: s.databaseType,
+        databaseName: s.databaseName,
+      },
+      errors,
+    };
+  }
+
+
   if (raw?.mode === "multi" && Array.isArray(raw?.services)) {
     const normalized = raw.services.map(normalizeService);
     const supported = [];
@@ -103,18 +124,13 @@ function validateAndNormalizeAnalysis(raw) {
     }
     return {
       ok: supported.length > 0,
-      data: { ...raw, services: supported, mode: "multi" },
-      errors,
-    };
-  }
-
-  if (raw?.mode === "single" && raw?.analysis) {
-    const s = normalizeService(raw.analysis);
-    const chk = isSupportedService(s);
-    if (!chk.ok) errors.push(chk.reason);
-    return {
-      ok: chk.ok,
-      data: { ...raw, analysis: s, mode: "single" },
+      data: {
+        mode: "multi",
+        services: supported,
+       
+        databaseType: canonDbType(raw.databaseType || "NONE"),
+        databaseName: safe(raw.databaseName),
+      },
       errors,
     };
   }
@@ -123,37 +139,25 @@ function validateAndNormalizeAnalysis(raw) {
   return { ok: false, data: raw, errors };
 }
 
-// -------------------- Headers pour appels API --------------------
-const getAuthHeaders = () => ({
-  Authorization: `Bearer ${localStorage.getItem("authToken")}`,
-  "Content-Type": "application/json",
-});
 
-// -------------------- API calls --------------------
-async function fetchRepositoryAnalysis(repo) {
+
+async function fetchRepositoryAnalysis(repo, apiClient) {
   try {
     if (!repo || !repo.repoId) {
       throw new Error("Repository ID not available");
     }
-
-    const response = await fetch(
-      `http://localhost:8080/api/stack-analysis/analyze/${repo.repoId}`,
-      {
-        method: "POST",
-        headers: getAuthHeaders(),
-      }
-    );
-
-    if (!response.ok) {
-      throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+    if (!apiClient) {
+      throw new Error("apiClient not ready");
     }
 
-    const data = await response.json();
+    const data = await apiClient.post(
+      `/api/stack-analysis/analyze/${repo.repoId}`
+    );
 
-    if (data.success) {
+    if (data?.success) {
       return data;
     } else {
-      throw new Error(data.message || "Erreur lors de l'analyse du repository");
+      throw new Error(data?.message || "Erreur lors de l'analyse du repository");
     }
   } catch (error) {
     console.error("Erreur lors de l'analyse:", error);
@@ -161,28 +165,23 @@ async function fetchRepositoryAnalysis(repo) {
   }
 }
 
-async function fetchRepoFiles(repo) {
+async function fetchRepoFiles(repo, apiClient) {
   if (!repo || !repo.repoId) {
     throw new Error("Repository ID not available");
   }
-
-  const response = await fetch(
-    `http://localhost:8080/api/stack-analysis/repository/${repo.repoId}/all-files`,
-    { headers: getAuthHeaders() }
+  if (!apiClient) {
+    throw new Error("apiClient not ready");
+  }
+  const data = await apiClient.get(
+    `/api/stack-analysis/repository/${repo.repoId}/all-files`
   );
-
-  if (!response.ok) {
-    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+  if (data?.success) {
+    return data.files || [];
   }
-
-  const data = await response.json();
-  if (!data.success) {
-    throw new Error(data.message || "Erreur lors du chargement des fichiers");
-  }
-  return data.files || [];
+  throw new Error(data?.message || "Erreur lors du chargement des fichiers");
 }
 
-// -------------------- Arbre de fichiers --------------------
+
 function buildTree(paths) {
   const root = { name: "", type: "dir", path: "", children: new Map() };
   for (const p of paths) {
@@ -241,20 +240,17 @@ function TreeNode({ node }) {
   );
 }
 
-// -------------------- UI: Selects --------------------
 
-// 1) Build tools autorisés selon stack
 const getAllowedBuildTools = (stackType) => {
   if (stackType?.includes("SPRING_BOOT")) {
-    return ["Maven", "Gradle"]; // Spring Boot
+    return ["Maven", "Gradle"];
   }
   if (stackType === "NODE_JS") {
-    return ["npm"]; // Node.js
+    return ["npm"];
   }
-  return BUILD_TOOLS; // fallback
+  return BUILD_TOOLS;
 };
 
-// 2) Select générique (Java/DB/Framework/etc.)
 const SelectField = ({
   label,
   value,
@@ -316,7 +312,6 @@ const SelectField = ({
   );
 };
 
-// 3) Select spécialisé pour Build Tool (utilise getAllowedBuildTools)
 const BuildToolSelect = ({
   label,
   value,
@@ -385,20 +380,19 @@ const ReadonlyField = ({ label, value }) => (
   </div>
 );
 
-// -------------------- Page --------------------
+
 export default function RepoAnalysisPage() {
   const location = useLocation();
   const [params] = useSearchParams();
   const navigate = useNavigate();
+  const { apiClient } = useAuth();
 
   const repo = location.state?.repo || null;
   const repoFullName = repo?.fullName || params.get("repo") || "unknown/repo";
 
-  const [allFiles, setAllFiles] = useState([]);
   const [visibleFiles, setVisibleFiles] = useState([]);
   const [filesError, setFilesError] = useState(null);
 
-  // ---- init modal selon mémoire persistée
   const [analysisOpen, setAnalysisOpen] = useState(() => {
     const rid = location.state?.repo?.repoId;
     return rid ? !getRepoConfirmed(rid) : true;
@@ -417,13 +411,15 @@ export default function RepoAnalysisPage() {
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [confirmLoading, setConfirmLoading] = useState(false);
 
-  // ✅ nouvelle state : a-t-on déjà confirmé/sauvegardé au moins une fois ?
   const [confirmedOnce, setConfirmedOnce] = useState(() => {
     const rid = location.state?.repo?.repoId;
     return rid ? getRepoConfirmed(rid) : false;
   });
 
-  // Sync quand repo devient disponible / change
+  
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+
+ 
   useEffect(() => {
     if (repo?.repoId) {
       const already = getRepoConfirmed(repo.repoId);
@@ -432,6 +428,7 @@ export default function RepoAnalysisPage() {
     }
   }, [repo]);
 
+ 
   useEffect(() => {
     let interval;
     let alive = true;
@@ -439,9 +436,10 @@ export default function RepoAnalysisPage() {
     (async () => {
       try {
         setFilesError(null);
-        const files = await fetchRepoFiles(repo);
+        if (!apiClient) return;
+
+        const files = await fetchRepoFiles(repo, apiClient);
         if (!alive) return;
-        setAllFiles(files);
 
         let i = 0;
         interval = setInterval(() => {
@@ -452,6 +450,7 @@ export default function RepoAnalysisPage() {
       } catch (e) {
         if (!alive) return;
         setFilesError(e.message || "Impossible de charger les fichiers.");
+        setVisibleFiles([]);
       }
     })();
 
@@ -459,8 +458,9 @@ export default function RepoAnalysisPage() {
       alive = false;
       clearInterval(interval);
     };
-  }, [repo]);
+  }, [repo, apiClient]);
 
+ 
   useEffect(() => {
     if (!repo) return;
     let alive = true;
@@ -469,7 +469,7 @@ export default function RepoAnalysisPage() {
       try {
         setIsAnalyzing(true);
         setAnalysisError(null);
-        const analysisData = await fetchRepositoryAnalysis(repo);
+        const analysisData = await fetchRepositoryAnalysis(repo, apiClient);
         const result = validateAndNormalizeAnalysis(analysisData);
 
         if (!alive) return;
@@ -497,7 +497,7 @@ export default function RepoAnalysisPage() {
     return () => {
       alive = false;
     };
-  }, [repo]);
+  }, [repo, apiClient]);
 
   const tree = useMemo(() => buildTree(visibleFiles), [visibleFiles]);
 
@@ -507,7 +507,7 @@ export default function RepoAnalysisPage() {
     setEditingField(path);
   };
 
-  // -------------------- SAUVEGARDE BACKEND (silencieuse) --------------------
+  
   const saveAnalysisToBackend = async () => {
     try {
       if (!analysis) {
@@ -593,32 +593,23 @@ export default function RepoAnalysisPage() {
         }
       }
 
-      const response = await fetch(
-        `http://localhost:8080/api/stack-analysis/repository/${repo.repoId}/update-parameters`,
-        {
-          method: "PUT",
-          headers: getAuthHeaders(),
-          body: JSON.stringify(updatedData),
-        }
+      const data = await apiClient.put(
+        `/api/stack-analysis/repository/${repo.repoId}/update-parameters`,
+        updatedData
       );
 
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      if (data.success) {
-        return true; // silencieux
+      if (data?.success) {
+        return true;
       } else {
-        throw new Error(data.message || "Échec de la sauvegarde");
+        throw new Error(data?.message || "Échec de la sauvegarde");
       }
     } catch (error) {
       console.error("Erreur lors de la sauvegarde:", error);
-      return false; // silencieux
+      return false;
     }
   };
 
-  // -------------------- ÉDITION LOCALE --------------------
+
   const updateFieldSafely = (obj, path, value) => {
     const pathParts = path.split(".");
     const updated = JSON.parse(JSON.stringify(obj));
@@ -658,6 +649,9 @@ export default function RepoAnalysisPage() {
     setEditingField(null);
     setEditingValue("");
     setEditingPath("");
+
+  
+    setHasUnsavedChanges(true);
   };
 
   const cancelEdit = () => {
@@ -678,18 +672,23 @@ export default function RepoAnalysisPage() {
     }
   };
 
-  // -------------------- NAVIGATION (après confirmation) --------------------
+  
   const goToNextPage = () => {
     navigate(`/next-step/${repo?.repoId}`, { state: { repo } });
   };
 
-  // -------------------- ACTIONS DES BOUTONS --------------------
+ 
   const onValidateGenerateCI = () => {
-    if (confirmedOnce) {
-      setRepoConfirmed(repo?.repoId, true); // sécurité
-      goToNextPage();
+  
+    if (editingField) {
+      saveEdit();
+    }
+
+    if (!confirmedOnce || hasUnsavedChanges) {
+      setConfirmOpen(true); 
     } else {
-      setConfirmOpen(true);
+      setRepoConfirmed(repo?.repoId, true);
+      goToNextPage();
     }
   };
 
@@ -708,22 +707,22 @@ export default function RepoAnalysisPage() {
     setConfirmOpen(false);
   };
 
-  // Ferme UNIQUEMENT le confirm modal, marque confirmé, prochains clics naviguent
+  
   const onConfirmProceed = async () => {
     try {
       setConfirmLoading(true);
-      const ok = await saveAnalysisToBackend(); // silencieux
+      const ok = await saveAnalysisToBackend();
       if (ok) {
-        setConfirmedOnce(true);               // ✅ ne plus redemander
-        setRepoConfirmed(repo?.repoId, true); // ✅ persiste
+        setHasUnsavedChanges(false); 
+        setConfirmedOnce(true);
+        setRepoConfirmed(repo?.repoId, true);
       }
-      setConfirmOpen(false); // on ferme juste le confirm
+      setConfirmOpen(false); 
     } finally {
       setConfirmLoading(false);
     }
   };
 
-  // -------------------- Champs réutilisables --------------------
   const EditableField = ({ label, value, path }) => {
     const isEditing = editingField === path;
     return (
@@ -760,6 +759,17 @@ export default function RepoAnalysisPage() {
       </div>
     );
   };
+
+ 
+  if (!apiClient) {
+    return (
+      <div className="analysis-page">
+        <div className="loading-indicator">
+          <p>Chargement de l'authentification...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="analysis-page">
@@ -807,6 +817,7 @@ export default function RepoAnalysisPage() {
           >
             <div className="modal-header">
               <h3>Repository Analysis</h3>
+              <p className="repo-name">{repoFullName}</p>
             </div>
             <div className="modal-body">
               {Array.isArray(analysis?._errors) && analysis._errors.length > 0 && (
@@ -831,12 +842,10 @@ export default function RepoAnalysisPage() {
                 </div>
               ) : analysis ? (
                 <div className="analysis-results">
-                  {/* Orchestrator aligné comme sections */}
                   <div className="service-section">
                     <h4>Orchestrator: GitHub Actions</h4>
                   </div>
 
-                  {/* MODE MULTI */}
                   {analysis.mode === "multi" && analysis.services && (
                     <div className="services-details">
                       {analysis.services.map((service, index) => (
@@ -853,7 +862,6 @@ export default function RepoAnalysisPage() {
                               : `${service.id}:`}
                           </h4>
 
-                          {/* Backend Details */}
                           {service.stackType?.includes("SPRING_BOOT") && (
                             <>
                               <ReadonlyField
@@ -905,7 +913,6 @@ export default function RepoAnalysisPage() {
                             </>
                           )}
 
-                          {/* Frontend Details */}
                           {service.stackType === "NODE_JS" && (
                             <>
                               <ReadonlyField
@@ -961,7 +968,6 @@ export default function RepoAnalysisPage() {
                         </div>
                       ))}
 
-                      {/* Database Section */}
                       {analysis.services.some((s) =>
                         s.stackType?.includes("SPRING_BOOT")
                       ) && (
@@ -992,7 +998,6 @@ export default function RepoAnalysisPage() {
                     </div>
                   )}
 
-                  {/* MODE SINGLE */}
                   {analysis.mode === "single" && analysis.analysis && (
                     <div className="service-details">
                       <div className="service-section">
@@ -1060,10 +1065,7 @@ export default function RepoAnalysisPage() {
 
                         {analysis.analysis.stackType === "NODE_JS" && (
                           <>
-                            <ReadonlyField
-                              label="Stack Type"
-                              value="Node.js"
-                            />
+                            <ReadonlyField label="Stack Type" value="Node.js" />
 
                             <SelectField
                               label="Framework"
@@ -1112,7 +1114,6 @@ export default function RepoAnalysisPage() {
                         )}
                       </div>
 
-                      {/* Database for single */}
                       {analysis.analysis.databaseType &&
                         analysis.analysis.databaseType !== "NONE" && (
                           <div className="service-section">

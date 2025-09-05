@@ -64,35 +64,48 @@ public class StackDetectionService {
     }
 
     // à l'intérieur de StackDetectionService
-    public List<ServiceAnalysis> analyzeAllServices(String repoUrl, String token) {
-        List<Map<String, Object>> root = gitHubService.getRepositoryContents(repoUrl, token, null);
-        List<DetectedStack> detected = detectAllServices(root, repoUrl, token, "");
-
-        List<ServiceAnalysis> out = new ArrayList<>();
-        int i = 0;
-        for (DetectedStack d : detected) {
-            String buildTool = detectBuildTool(d.stackType).toLowerCase(); // "maven"/"gradle"/"npm"/"generic"
-            String lang = detectLanguage(d.stackType);
-            Map<String, Object> details = analyzeProjectDetails(repoUrl, token, d.stackType, d.workingDirectory);
-            String javaVer = null;
-            if (d.stackType.contains("SPRING_BOOT")) {
-                javaVer = detectJavaVersion(repoUrl, token, d.stackType, d.workingDirectory);
-            }
-            String orchestrator="github-actions";
-            String prefix = d.stackType.contains("SPRING") ? "backend-" : ("NODE_JS".equals(d.stackType) ? "frontend-" : "service-");
-            out.add(new ServiceAnalysis(
-                prefix + (i++),
-                d.stackType,
-                d.workingDirectory,
-                buildTool,
-                lang,
-                details,
-                orchestrator,
-                javaVer
-            ));
-        }
-        return out;
-    }
+    public List<ServiceAnalysis> analyzeAllServices(String repoUrl, String token) {  
+    List<Map<String, Object>> root = gitHubService.getRepositoryContents(repoUrl, token, null);  
+    List<DetectedStack> detected = detectAllServices(root, repoUrl, token, "");  
+  
+    List<ServiceAnalysis> out = new ArrayList<>();  
+    int i = 0;  
+    for (DetectedStack d : detected) {  
+        String buildTool = detectBuildTool(d.stackType).toLowerCase();  
+        String lang = detectLanguage(d.stackType);  
+        Map<String, Object> details = analyzeProjectDetails(repoUrl, token, d.stackType, d.workingDirectory);  
+        String javaVer = null;  
+        if (d.stackType.contains("SPRING_BOOT")) {  
+            javaVer = detectJavaVersion(repoUrl, token, d.stackType, d.workingDirectory);  
+        }  
+        String orchestrator = "github-actions";  
+        String prefix = d.stackType.contains("SPRING") ? "backend-" : ("NODE_JS".equals(d.stackType) ? "frontend-" : "service-");  
+          
+        // ← Ajouter la détection de base de données  
+        String databaseType = "NONE";  
+        String databaseName = "my_database";  
+        if (d.stackType.contains("SPRING_BOOT")) {  
+            databaseType = detectDatabaseTypeFromStack(repoUrl, token, d.stackType, d.workingDirectory);  
+            if (!"NONE".equals(databaseType)) {  
+                databaseName = extractDatabaseName(repoUrl, token, d.workingDirectory);  
+            }  
+        }  
+          
+        out.add(new ServiceAnalysis(  
+            prefix + (i++),  
+            d.stackType,  
+            d.workingDirectory,  
+            buildTool,  
+            lang,  
+            details,  
+            orchestrator,  
+            javaVer,  
+            databaseType,  
+            databaseName  
+        ));  
+    }  
+    return out;  
+}
 
     /**
      * Génère une configuration de services structurée pour Docker

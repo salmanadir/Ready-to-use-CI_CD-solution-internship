@@ -1,36 +1,43 @@
 /* Fond qui couvre toute la page */
 .repo-selection-page {
+  --content-width: 820px;        /* largeur commune SearchBar + RepoCard */
   min-height: 100vh;
   width: 100%;
   margin: 0;
-  padding: 24px;
-  background-color: #030712;   
+  padding: 24px 16px;            /* un peu plus compact sur mobile */
+  background-color: #030712;
   color: #fff;
   box-sizing: border-box;
+
+  /* Centrer le contenu horizontalement */
+  display: flex;
+  flex-direction: column;
+  align-items: center;
 }
 
 .repo-selection-page h1 {
-  margin-top: 50px;
+  margin-top: 32px;
   font-size: 33px;
-  text-align: center;        
+  text-align: center;
 }
 
 .repo-selection-page h1 span {
-  color: #2563eb;           
+  color: #2563eb;
 }
 
-
+/* Barre de recherche centrée, alignée avec la grille */
 .searchbar-row {
-  margin: 90px 0 16px 350px;  
-  display: flex;              
+  width: 100%;
+  max-width: var(--content-width);  /* ← même largeur que la grille */
+  margin: 24px auto 16px;           /* centré */
+  display: flex;
   align-items: center;
   gap: 10px;
 }
 
 .searchbar-row .search-bar {
-  flex: 1;
+  flex: 1;                          /* prend l’espace restant */
 }
-
 
 .visibility-filter {
   background: #0f172a;
@@ -45,10 +52,18 @@
   border-color: #2563eb;
 }
 
+/* Grille — toujours une seule colonne, alignée avec la barre de recherche */
 .repo-grid {
-  display: grid;
-  gap: 16px;
-  margin: 10px 0 0 0;         
+  width: 100%;
+  max-width: var(--content-width);  /* ← même largeur que la barre */
+  margin: 16px auto 0;              /* centré */
+  display: flex;
+  flex-direction: column;           /* une seule colonne */
+  gap: 16px;                        /* espacement vertical entre les cartes */
+}
+/* chaque carte prend toute la largeur du conteneur */
+.repo-grid > * {
+  width: 100%;
 }
 
 .show-more-container {
@@ -63,48 +78,26 @@
   text-align: center;
 }
 
-
 .modal-overlay {
   position: fixed;
   inset: 0;
   background: rgba(0,0,0,0.6);
   display: flex;
-  align-items: center;
-  justify-content: center;
+  align-items: center;            /* centre le modal verticalement */
+  justify-content: center;        /* centre le modal horizontalement */
   z-index: 999;
 }
 
-/* .modal {
-  background: #111827;
-  color: #fff;
-  border: 1px solid #334155;
-  border-radius: 10px;
-  width: min(480px, calc(100% - 32px));
-  box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-} */
-/* 
-.modal-header {
-  padding: 14px 16px;
-  border-bottom: 0.5px solid rgba(255,255,255,0.2);
-}
-
-.modal-body {
-  padding: 16px;
-  /* color: #cbd5e1; */
-  /* line-height: 1.5;
-} */ 
+/* Conserve le modal commenté si tu le gères ailleurs */
+/* .modal { ... } */
+/* .modal-header { ... } */
+/* .modal-body { ... } */
 
 .modal-subtle {
   color: #fca5a5;
 }
-/* 
-.modal-actions {
-  display: flex;
-  gap: 10px;
-  justify-content: flex-end;
-  padding: 12px 16px;
-  border-top: 0.5px solid rgba(255,255,255,0.15);
-} */
+
+/* .modal-actions { ... } */
 
 .btn {
   padding: 8px 12px;
@@ -115,9 +108,9 @@
 }
 
 .btn-primary {
-  background: #2563eb;
+  background: #fca5a5;
   color: #fff;
-  border-color: #2563eb;
+  border-color: #fca5a5;
 }
 .btn-primary:hover { filter: brightness(1.05); }
 
@@ -128,31 +121,43 @@
 }
 .btn-secondary:hover { background: #334155; }
 
-.error-banner {  
-  background-color: #fef2f2;  
-  border: 1px solid #fecaca;  
-  border-radius: 8px;  
-  padding: 16px;  
-  margin-bottom: 20px;  
-  color: #dc2626;  
-}  
-  
-.error-banner p {  
-  margin: 0 0 8px 0;  
-}  
-  
-.error-banner small {  
-  color: #6b7280;  
-}  
-  
+.error-banner {
+  background-color: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 20px;
+  color: #dc2626;
+}
+.error-banner p {
+  margin: 0 0 8px 0;
+}
+.error-banner small {
+  color: #6b7280;
+}
 
-.loading-indicator {  
-  text-align: center;  
-  padding: 40px;  
-  color: #6b7280;  
-}  
-  
-.loading-indicator p {  
-  margin: 0;  
-  font-size: 16px;  
+.loading-indicator {
+  text-align: center;
+  padding: 40px;
+  color: #6b7280;
+}
+.loading-indicator p {
+  margin: 0;
+  font-size: 16px;
+}
+
+@media (max-width: 768px) {
+  .searchbar-row {
+    max-width: 100%;               
+    flex-direction: column;        
+    align-items: stretch;          
+    gap: 12px;
+  }
+  .visibility-filter {
+    width: 100%;
+  }
+  .repo-selection-page h1 {
+    margin-top: 24px;
+    font-size: 28px;
+  }
 }
