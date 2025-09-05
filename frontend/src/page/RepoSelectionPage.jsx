@@ -26,8 +26,8 @@ const RepoSelectionPage = () => {
   
   // Simulation temporaire d'authentification JWT  
   const simulateAuth = () => {  
-   
-    const mockJWT = 'eyJhbGciOiJIUzM4NCJ9.eyJzdWIiOiJBc21hSG1pZGE5OSIsImdpdGh1YklkIjoxNTYyNDM4MDcsInVzZXJJZCI6MSwiaWF0IjoxNzU2NjAyNjIwLCJleHAiOjE3NTY2Mzg2MjB9.poMb_6HeAvBDN7dFAmHk4FpHbmufdAoTCpJw5sLyOqI4QZjApWDlnNTHVzuuwG-O';  
+  
+    const mockJWT = 'eyJhbGciOiJIUzM4NCJ9.eyJzdWIiOiJBc21hSG1pZGE5OSIsImdpdGh1YklkIjoxNTYyNDM4MDcsInVzZXJJZCI6MSwiaWF0IjoxNzU3MDE3NTkzLCJleHAiOjE3NTcwNTM1OTN9.SNgipTT09IKG7KMNZaNsoFkBAPLwtNiUXxWFlIY2tkh2Co3EZNIM1tgEagO1zqWF';  
     localStorage.setItem('authToken', mockJWT);  
   };  
   
@@ -243,13 +243,13 @@ const RepoSelectionPage = () => {
                 disabled={selectLoading}  
               >  
                 {selectLoading ? 'Sélection...' : 'Yes'}  
-              </button>  
-            </div>  
-          </div>  
-        </div>  
-      )}  
-    </div>  
-  );  
-};  
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
   
 export default RepoSelectionPage;

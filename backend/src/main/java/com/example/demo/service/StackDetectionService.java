@@ -22,7 +22,6 @@ public class StackDetectionService {
     /**
      * Analyse un repository GitHub pour détecter sa stack technique
      */
-    
     public StackAnalysis analyzeRepository(String repoUrl, String token, String defaultBranch) {
         List<Map<String, Object>> files = gitHubService.getRepositoryContents(repoUrl, token, null);
 
@@ -31,7 +30,6 @@ public class StackDetectionService {
         String javaVersion = detectJavaVersion(repoUrl, token, detectedStack.stackType, detectedStack.workingDirectory);
         String buildTool = detectBuildTool(detectedStack.stackType);
         String language = detectLanguage(detectedStack.stackType);
-        
 
         StackAnalysis analysis = new StackAnalysis(
                 detectedStack.stackType,
@@ -46,7 +44,6 @@ public class StackDetectionService {
         Map<String, Object> projectDetails = analyzeProjectDetails(repoUrl, token, detectedStack.stackType, detectedStack.workingDirectory);
         analysis.setProjectDetails(projectDetails);
 
-
         // Infos Docker/DB
         String databaseType = detectDatabaseTypeFromStack(repoUrl, token, detectedStack.stackType, detectedStack.workingDirectory);
         String databaseName = extractDatabaseName(repoUrl, token, detectedStack.workingDirectory);
@@ -56,49 +53,46 @@ public class StackDetectionService {
         if ("NODE_JS".equals(detectedStack.stackType)) {
             String raw = projectDetails != null ? (String) projectDetails.get("nodeVersion") : null;
             if (raw == null || "Latest".equalsIgnoreCase(raw)) {
-                 String fromFiles = tryReadNodeVersionFiles(repoUrl, token, detectedStack.workingDirectory);
+                String fromFiles = tryReadNodeVersionFiles(repoUrl, token, detectedStack.workingDirectory);
                 if (fromFiles != null && !fromFiles.isBlank()) {
-                    // on garde la version dans projectDetails
                     projectDetails.put("nodeVersion", fromFiles);
-                 }
+                }
             }
-            
-         }
-
+        }
 
         return analysis;
     }
+
     // à l'intérieur de StackDetectionService
-public List<ServiceAnalysis> analyzeAllServices(String repoUrl, String token) {
-  List<Map<String, Object>> root = gitHubService.getRepositoryContents(repoUrl, token, null);
-  List<DetectedStack> detected = detectAllServices(root, repoUrl, token, "");
+    public List<ServiceAnalysis> analyzeAllServices(String repoUrl, String token) {
+        List<Map<String, Object>> root = gitHubService.getRepositoryContents(repoUrl, token, null);
+        List<DetectedStack> detected = detectAllServices(root, repoUrl, token, "");
 
-  List<ServiceAnalysis> out = new ArrayList<>();
-  int i = 0;
-  for (DetectedStack d : detected) {
-    String buildTool = detectBuildTool(d.stackType).toLowerCase(); // "maven"/"gradle"/"npm"/"generic"
-    String lang = detectLanguage(d.stackType);
-    Map<String, Object> details = analyzeProjectDetails(repoUrl, token, d.stackType, d.workingDirectory);
-String javaVer = null;
-  if (d.stackType.contains("SPRING_BOOT")) {
-    javaVer = detectJavaVersion(repoUrl, token, d.stackType, d.workingDirectory);
-  }
-  String orchestrator="github-actions";
-    String prefix = d.stackType.contains("SPRING") ? "backend-" : ("NODE_JS".equals(d.stackType) ? "frontend-" : "service-");
-    out.add(new ServiceAnalysis(
-      prefix + (i++),
-      d.stackType,
-      d.workingDirectory,
-      buildTool,
-      lang,
-      details,
-      orchestrator,
-      javaVer
-    ));
-  }
-  return out;
-}
-
+        List<ServiceAnalysis> out = new ArrayList<>();
+        int i = 0;
+        for (DetectedStack d : detected) {
+            String buildTool = detectBuildTool(d.stackType).toLowerCase(); // "maven"/"gradle"/"npm"/"generic"
+            String lang = detectLanguage(d.stackType);
+            Map<String, Object> details = analyzeProjectDetails(repoUrl, token, d.stackType, d.workingDirectory);
+            String javaVer = null;
+            if (d.stackType.contains("SPRING_BOOT")) {
+                javaVer = detectJavaVersion(repoUrl, token, d.stackType, d.workingDirectory);
+            }
+            String orchestrator="github-actions";
+            String prefix = d.stackType.contains("SPRING") ? "backend-" : ("NODE_JS".equals(d.stackType) ? "frontend-" : "service-");
+            out.add(new ServiceAnalysis(
+                prefix + (i++),
+                d.stackType,
+                d.workingDirectory,
+                buildTool,
+                lang,
+                details,
+                orchestrator,
+                javaVer
+            ));
+        }
+        return out;
+    }
 
     /**
      * Génère une configuration de services structurée pour Docker
@@ -127,12 +121,11 @@ String javaVer = null;
                     services.add(dbService);
                     databaseServiceId = (String) dbService.get("id");
                 }
-                
+
                 relationships.add(createRelationship((String) service.get("id"), databaseServiceId, "database"));
             }
         }
 
-      
         addFrontendBackendRelationships(services, relationships);
 
         result.put("services", services);
@@ -158,11 +151,11 @@ String javaVer = null;
 
         service.put("orchestrator","github-actions");
         if (detected.stackType.contains("SPRING_BOOT")) {
-        String jv = detectJavaVersion(repoUrl, token, detected.stackType, detected.workingDirectory);
-        service.put("javaVersion", jv); // ex: "17"
-    } else {
-        service.put("javaVersion", null); // pour Node/others
-    }
+            String jv = detectJavaVersion(repoUrl, token, detected.stackType, detected.workingDirectory);
+            service.put("javaVersion", jv); // ex: "17"
+        } else {
+            service.put("javaVersion", null); // pour Node/others
+        }
 
         // Build / Runtime / Env
         Map<String, Object> artifact = createArtifactConfig(detected, repoUrl, token);
@@ -304,7 +297,7 @@ String javaVer = null;
                     runtime.put("port", extractNodePort(pkg));
                     runtime.put("startCommand", "npm start");
                 } else {
-                    runtime.put("port", "80");       
+                    runtime.put("port", "80");
                     runtime.put("startCommand", null);
                 }
             } catch (Exception e) {
@@ -334,7 +327,7 @@ String javaVer = null;
         } catch (Exception ignored) {}
 
         return "8080";
-        }
+    }
 
     private String extractNodePort(String packageContent) {
         if (packageContent == null) return "3000";
@@ -475,7 +468,6 @@ String javaVer = null;
         }
     }
 
-   
     public Map<String, Object> generateDockerConfiguration(String repoUrl, String token, String defaultBranch) {
         Map<String, Object> dockerConfig = new HashMap<>();
         List<Map<String, Object>> files = gitHubService.getRepositoryContents(repoUrl, token, null);
@@ -557,12 +549,28 @@ String javaVer = null;
 
             if ("Dockerfile".equals(fileName) || "docker-compose.yml".equals(fileName)) continue;
 
-            if ("pom.xml".equals(fileName))
-                services.add(new DetectedStack("SPRING_BOOT_MAVEN", currentPath.isEmpty() ? "." : "./" + currentPath));
-            if ("build.gradle".equals(fileName) || "build.gradle.kts".equals(fileName))
-                services.add(new DetectedStack("SPRING_BOOT_GRADLE", currentPath.isEmpty() ? "." : "./" + currentPath));
-            if ("package.json".equals(fileName))
-                services.add(new DetectedStack("NODE_JS", currentPath.isEmpty() ? "." : "./" + currentPath));
+            // ---------- CHANGEMENT: détection stricte ----------
+            if ("pom.xml".equals(fileName)) {
+                String pom = gitHubService.getFileContent(repoUrl, token, (currentPath.isEmpty()? "" : currentPath + "/") + "pom.xml");
+                if (isSpringBootPom(pom)) {
+                    services.add(new DetectedStack("SPRING_BOOT_MAVEN", currentPath.isEmpty() ? "." : "./" + currentPath));
+                }
+            }
+
+            if ("build.gradle".equals(fileName) || "build.gradle.kts".equals(fileName)) {
+                String gradle = gitHubService.getFileContent(repoUrl, token, (currentPath.isEmpty()? "" : currentPath + "/") + fileName);
+                if (!isAndroidRepo(repoUrl, token, currentPath) && isSpringBootGradle(gradle)) {
+                    services.add(new DetectedStack("SPRING_BOOT_GRADLE", currentPath.isEmpty() ? "." : "./" + currentPath));
+                }
+            }
+
+            if ("package.json".equals(fileName)) {
+                String pkg = gitHubService.getFileContent(repoUrl, token, (currentPath.isEmpty()? "" : currentPath + "/") + "package.json");
+                if (!isMobileNodePackage(pkg)) {
+                    services.add(new DetectedStack("NODE_JS", currentPath.isEmpty() ? "." : "./" + currentPath));
+                }
+            }
+            // ---------------------------------------------------
 
             if ("dir".equals(type)) {
                 List<Map<String, Object>> subFiles = gitHubService.getRepositoryContents(repoUrl, token, newPath);
@@ -702,8 +710,6 @@ String javaVer = null;
         );
     }
 
-    
-
     private String tryReadNodeVersionFiles(String repoUrl, String token, String wd) {
         String base = ".".equals(wd) ? "" : wd.replaceFirst("^\\./", "") + "/";
         for (String f : List.of(".nvmrc", ".node-version")) {
@@ -714,18 +720,17 @@ String javaVer = null;
         }
         return null;
     }
-    
+
     private String normalizeNodeVersion(String raw) {
         if (raw == null || raw.isBlank()) return "20";
         var m = java.util.regex.Pattern.compile("(\\d+)(?:\\.\\d+)?").matcher(raw.replace("v",""));
         return m.find() ? m.group(1) : "20";
     }
-    
 
-    
-  public List<String> getAllRepositoryFiles(String repoUrl, String token, String branch) {  
-    return gitHubService.getAllRepositoryFiles(repoUrl, token, branch);  
-}
+    public List<String> getAllRepositoryFiles(String repoUrl, String token, String branch) {
+        return gitHubService.getAllRepositoryFiles(repoUrl, token, branch);
+    }
+
     private static class DetectedStack {
         String stackType;
         String workingDirectory;
@@ -736,18 +741,77 @@ String javaVer = null;
         }
     }
 
+    // ---------- NOUVEAUX HELPERS (ajoutés) ----------
+    private boolean isAndroidGradle(String gradle) {
+        if (gradle == null) return false;
+        String g = gradle.toLowerCase();
+        if (g.contains("com.android.application") || g.contains("com.android.library")) return true;
+        if (g.contains("kotlin-android")) return true;
+        if (g.contains("\nandroid {") || g.contains("\n android {")) return true;
+        return false;
+    }
+
+    private boolean isAndroidRepo(String repoUrl, String token, String path) {
+        try {
+            String base = (path == null || path.isEmpty() || ".".equals(path)) ? "" : path + "/";
+            String manifest = gitHubService.getFileContent(repoUrl, token, base + "app/src/main/AndroidManifest.xml");
+            if (manifest != null && !manifest.isBlank()) return true;
+        } catch (Exception ignore) {}
+        return false;
+    }
+
+    private boolean isSpringBootPom(String pom) {
+        if (pom == null) return false;
+        return pom.contains("<groupId>org.springframework.boot</groupId>")
+            || pom.contains("spring-boot-starter");
+    }
+
+    private boolean isSpringBootGradle(String gradle) {
+        if (gradle == null) return false;
+        if (isAndroidGradle(gradle)) return false; // exclure Android
+        boolean hasBootPlugin = gradle.contains("org.springframework.boot");
+        boolean hasBootStarter = gradle.contains("spring-boot-starter");
+        return hasBootPlugin || hasBootStarter;
+    }
+
+    private boolean isMobileNodePackage(String pkg) {
+        if (pkg == null) return false;
+        String p = pkg.toLowerCase();
+        return p.contains("\"react-native\"")
+            || p.contains("\"expo\"")
+            || p.contains("\"@capacitor/")
+            || p.contains("\"cordova\"")
+            || p.contains("\"@ionic/")
+            || p.contains("\"nativescript\"");
+    }
+    // -------------------------------------------------
+
     private DetectedStack detectStackTypeRecursively(List<Map<String, Object>> files, String repoUrl, String token, String currentPath) {
         for (Map<String, Object> file : files) {
             String fileName = (String) file.get("name");
             String type = (String) file.get("type");
             String newPath = currentPath.isEmpty() ? fileName : currentPath + "/" + fileName;
 
-            if ("pom.xml".equals(fileName))
-                return new DetectedStack("SPRING_BOOT_MAVEN", currentPath.isEmpty() ? "." : "./" + currentPath);
-            if ("build.gradle".equals(fileName) || "build.gradle.kts".equals(fileName))
-                return new DetectedStack("SPRING_BOOT_GRADLE", currentPath.isEmpty() ? "." : "./" + currentPath);
-            if ("package.json".equals(fileName))
-                return new DetectedStack("NODE_JS", currentPath.isEmpty() ? "." : "./" + currentPath);
+            // ---------- CHANGEMENT: détection stricte ----------
+            if ("pom.xml".equals(fileName)) {
+                String pom = gitHubService.getFileContent(repoUrl, token, (currentPath.isEmpty()? "" : currentPath + "/") + "pom.xml");
+                if (isSpringBootPom(pom)) {
+                    return new DetectedStack("SPRING_BOOT_MAVEN", currentPath.isEmpty() ? "." : "./" + currentPath);
+                }
+            }
+            if ("build.gradle".equals(fileName) || "build.gradle.kts".equals(fileName)) {
+                String gradle = gitHubService.getFileContent(repoUrl, token, (currentPath.isEmpty()? "" : currentPath + "/") + fileName);
+                if (!isAndroidRepo(repoUrl, token, currentPath) && isSpringBootGradle(gradle)) {
+                    return new DetectedStack("SPRING_BOOT_GRADLE", currentPath.isEmpty() ? "." : "./" + currentPath);
+                }
+            }
+            if ("package.json".equals(fileName)) {
+                String pkg = gitHubService.getFileContent(repoUrl, token, (currentPath.isEmpty()? "" : currentPath + "/") + "package.json");
+                if (!isMobileNodePackage(pkg)) {
+                    return new DetectedStack("NODE_JS", currentPath.isEmpty() ? "." : "./" + currentPath);
+                }
+            }
+            // ---------------------------------------------------
 
             if ("dir".equals(type)) {
                 List<Map<String, Object>> subFiles = gitHubService.getRepositoryContents(repoUrl, token, newPath);
