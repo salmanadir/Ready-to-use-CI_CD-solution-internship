@@ -1,12 +1,16 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useApp } from "../store/AppContext";
-import { previewDocker, applyDockerfile } from "../services/api";
+import { previewDocker, applyDockerfile, setApiClient } from "../services/api";
+import { useAuth } from "../context/AuthContext";
 import StepHeader from "../components/StepHeader";
 import MetaCards from "../components/MetaCards";
 import CodeViewer from "../components/CodeViewer";
 import StickyActions from "../components/StickyActions";
 import ServiceList from "../components/ServiceList";
+
+// 🎨 styles scopés à ces pages
+import "../styles/pipeline.css";
 
 function buildSingleTechStackInfo(analysis) {
   const src = analysis?.analysis || (analysis?.services && analysis.services[0]) || null;
@@ -45,14 +49,7 @@ function pickPreview(plan) {
   return { content: "", source: "-" };
 }
 
-/* =========================
-   Helpers de messages
-   ========================= */
 function pickDockerSuccessToastTypeAndMessage(res) {
-  // Backend renvoie typiquement:
-  // - "Dockerfile generated & pushed"
-  // - "Dockerfile already present — nothing to apply"
-  // - "All Dockerfiles already present — nothing to apply"
   const msg = res?.message || "";
   const lower = msg.toLowerCase();
   if (lower.includes("already present") || lower.includes("nothing to apply")) {
@@ -70,9 +67,10 @@ function humanizeDockerError(err, strategy) {
     if (m.toLowerCase().includes("github token not found")) {
       return "GitHub token not found for user — connect your GitHub account.";
     }
-    // FAIL_IF_EXISTS → déjà présent
-    if (String(strategy).toUpperCase() === "FAIL_IF_EXISTS" &&
-        (m.toLowerCase().includes("already exists") || m.toLowerCase().includes("exists"))) {
+    if (
+      String(strategy).toUpperCase() === "FAIL_IF_EXISTS" &&
+      (m.toLowerCase().includes("already exists") || m.toLowerCase().includes("exists"))
+    ) {
       return "File already exists and strategy is FAIL_IF_EXISTS — push aborted.";
     }
     return m;
@@ -85,19 +83,29 @@ function humanizeDockerError(err, strategy) {
 
 export default function DockerfilePreview() {
   const nav = useNavigate();
+  const { apiClient } = useAuth(); // ✅ client auth (JWT)
   const {
-    repoId, analysis, dockerOptions,
-    containerPlans, setContainerPlans,
-    readyForCi, setReadyForCi,
+    repoId,
+    analysis,
+    dockerOptions,
+    containerPlans,
+    setContainerPlans,
+    readyForCi,
+    setReadyForCi,
     setToast,
   } = useApp();
+
+  // ✅ branche l'apiClient (JWT) dans le SDK une seule fois
+  useEffect(() => {
+    if (apiClient) setApiClient(apiClient);
+  }, [apiClient]);
 
   const [loading, setLoading] = useState(false);
   const [applying, setApplying] = useState(false);
   const [selectedWD, setSelectedWD] = useState(null);
 
   const mode = analysis?.mode === "multi" ? "multi" : "single";
-  const services = mode === "multi" ? (analysis?.services || []) : [];
+  const services = mode === "multi" ? analysis?.services || [] : [];
 
   const plansByWD = useMemo(() => {
     const map = {};
@@ -136,7 +144,10 @@ export default function DockerfilePreview() {
         const plans = res.plans || [];
         setContainerPlans(plans);
         setReadyForCi(Boolean(res.readyForCi));
-        const first = services?.[0]?.workingDirectory || plans?.[0]?.workingDirectory || null;
+        const first =
+          services?.[0]?.workingDirectory ||
+          plans?.[0]?.workingDirectory ||
+          null;
         setSelectedWD(first);
       } else {
         const plan = res.containerPlan ? [res.containerPlan] : [];
@@ -198,7 +209,7 @@ export default function DockerfilePreview() {
 
   if (!repoId || !analysis) {
     return (
-      <div className="page">
+      <div className="pipeline page">
         <div className="container">
           <StepHeader title="Dockerfile — Preview" subtitle="No analysis loaded." />
           <div className="card">
@@ -239,7 +250,6 @@ export default function DockerfilePreview() {
       ]
     : [];
 
-  // prêt pour CI ?
   const allReady = useMemo(() => {
     if (mode === "multi") {
       return (
@@ -253,7 +263,6 @@ export default function DockerfilePreview() {
 
   const canProceed = allReady && !loading && !applying;
 
-  // Actions
   const primaryAction =
     currentPlan?.shouldGenerateDockerfile
       ? {
@@ -267,19 +276,9 @@ export default function DockerfilePreview() {
           disabled: !canProceed,
         };
 
-  // Back vers /analyze and refresh 
   const secondaryAction = [
-    {
-      label: "Back",
-      onClick: () => nav("/analyze"),
-      disabled: loading || applying,
-    },
-    {
-      label: "Refresh",
-      onClick: loadPreview,
-      disabled: loading || applying,
-      title: "Refresh previews",
-    },
+    { label: "Back", onClick: () => nav("/analyze"), disabled: loading || applying },
+    { label: "Refresh", onClick: loadPreview, disabled: loading || applying, title: "Refresh previews" },
   ];
 
   const rightAction =
@@ -301,7 +300,7 @@ export default function DockerfilePreview() {
     ) : null;
 
   return (
-    <div className="page">
+    <div className="pipeline page">
       <div className="container">
         <StepHeader
           title="Dockerfile — Preview"
@@ -329,9 +328,7 @@ export default function DockerfilePreview() {
               ) : (
                 <CodeViewer
                   content={chosen.content || ""}
-                  onCopy={() =>
-                    setToast({ type: "info", message: "Copied to clipboard." })
-                  }
+                  onCopy={() => setToast({ type: "info", message: "Copied to clipboard." })}
                 />
               )}
             </div>
@@ -346,7 +343,7 @@ export default function DockerfilePreview() {
             <button
               className="btn ghost"
               onClick={() => nav("/")}
-              style={{ minWidth: 260, backgroundColor: 'purple' }}
+              style={{ minWidth: 260, backgroundColor: "purple" }}
               aria-label="Go back Home"
               title="Go back Home"
             >

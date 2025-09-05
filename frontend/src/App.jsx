@@ -1,18 +1,91 @@
-import React from "react";
-import { Routes, Route, Navigate } from "react-router-dom";
-import Analyze from "./page/Analyze";
-import DockerfilePreview from "./page/DockerfilePreview";
-import CiPreview from "./page/CiPreview"; 
+import React from 'react';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
+import { AuthProvider } from './context/AuthContext';
 
+import LandingPage from './pages/LandingPage/LandingPage';
+import Dashboard from './pages/Dashboard/Dashboard';
+import CDGeneration from './pages/Dashboard/cdGeneration';
+import AuthCallback from './pages/AuthCallback/Authcallback';
+import ProtectedRoute from './components/ProtectedRoute';
 
-export default function App() {
+import RepoAnalysisPage from './pages/RepoAnalysis/RepoAnalysisPage';
+import RepoSelectionPage from './pages/RepoSelection/RepoSelectionPage';
+
+// 👉 ajoute tes pages pipeline
+import DockerfilePreview from './pages/DockerfilePreview';
+import CiPreview from './pages/CiPreview';
+
+import "@fortawesome/fontawesome-free/css/all.min.css";
+import './App.css';
+
+function App() {
   return (
-    <Routes>
-      <Route path="/analyze" element={<Analyze />} />
-      <Route path="/docker/preview" element={<DockerfilePreview />} />
-      <Route path="/ci/preview" element={<CiPreview />} /> 
-      <Route path="/" element={<Navigate to="/analyze" replace />} />
-      <Route path="*" element={<div style={{ padding: 24 }}>404</div>} />
-    </Routes>
+    <AuthProvider>
+      <Router>
+        <Routes>
+          {/* Public routes */}
+          <Route path="/" element={<LandingPage />} />
+          <Route path="/auth/callback" element={<AuthCallback />} />
+          <Route path="/LandingTest" element={<LandingPage />} />
+
+          {/* Protected routes */}
+          <Route
+            path="/dashboard"
+            element={
+              <ProtectedRoute>
+                <Dashboard />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/dashboard/select-repo"
+            element={
+              <ProtectedRoute>
+                <RepoSelectionPage />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/analysis/:repoId"
+            element={
+              <ProtectedRoute>
+                <RepoAnalysisPage />
+              </ProtectedRoute>
+            }
+          />
+
+          {/* 👉 nouvelles routes CI/CD preview */}
+          <Route
+            path="/docker/preview"
+            element={
+              <ProtectedRoute>
+                <DockerfilePreview />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/ci/preview"
+            element={
+              <ProtectedRoute>
+                <CiPreview />
+              </ProtectedRoute>
+            }
+          />
+
+          <Route
+            path="/dashboard/cd-generation"
+            element={
+              <ProtectedRoute>
+                <CDGeneration />
+              </ProtectedRoute>
+            }
+          />
+        </Routes>
+      </Router>
+    </AuthProvider>
   );
 }
+
+export default App;

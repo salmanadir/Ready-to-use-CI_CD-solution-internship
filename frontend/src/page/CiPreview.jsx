@@ -1,12 +1,16 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useApp } from "../store/AppContext";
-import { previewCi, generateCi } from "../services/api";
+import { previewCi, generateCi, setApiClient } from "../services/api";
+import { useAuth } from "../context/AuthContext";
 import StepHeader from "../components/StepHeader";
 import CodeViewer from "../components/CodeViewer";
 import StickyActions from "../components/StickyActions";
 import MetaCards from "../components/MetaCards";
 import CiServiceList from "../components/CiServiceList";
+
+// 🎨 styles scopés à ces pages
+import "../styles/pipeline.css";
 
 function buildSingleTechStackInfo(analysis) {
   const src = analysis?.analysis || (analysis?.services && analysis.services[0]) || null;
@@ -20,9 +24,6 @@ function buildSingleTechStackInfo(analysis) {
   };
 }
 
-/* =========================
-   Helpers messages + stratégie
-   ========================= */
 function humanizeCiSuccess(res, n) {
   if (Array.isArray(res?.workflows)) {
     const count = res.workflows.length;
@@ -44,11 +45,9 @@ function humanizeCiError(err, strategy) {
   const raw = (err?.payload?.message || err?.message || "Unknown error.").trim();
   const s = err?.status;
 
-  // Cas backend "Unexpected error: null"
   if (/^unexpected error:\s*null$/i.test(raw)) {
     return "Some files already exists. Try to push only unexisted. Check your GitHub repo and branch.";
   }
-
   if (s === 401) return "Authentication required or repository not owned.";
   if (s === 400) {
     const low = raw.toLowerCase();
@@ -72,16 +71,13 @@ function humanizeCiError(err, strategy) {
   return raw;
 }
 
-// Pré-check côté UI avant d’appeler /generate
 function preflightForStatus(status, strategy) {
   const strat = String(strategy || "UPDATE_IF_EXISTS").toUpperCase();
   const st = (status || "").toUpperCase(); // NOT_FOUND | IDENTICAL | DIFFERENT
 
-  // IDENTICAL + UPDATE_IF_EXISTS => rien à faire
   if (st === "IDENTICAL" && strat === "UPDATE_IF_EXISTS") {
     return { block: true, type: "info", message: "Already up to date — nothing to push." };
   }
-  // Fichier existe ET FAIL_IF_EXISTS => erreur amont
   if ((st === "IDENTICAL" || st === "DIFFERENT") && strat === "FAIL_IF_EXISTS") {
     return {
       block: true,
@@ -94,10 +90,16 @@ function preflightForStatus(status, strategy) {
 
 export default function CiPreview() {
   const nav = useNavigate();
+  const { apiClient } = useAuth(); // ✅ client auth (JWT)
   const { repoId, analysis, dockerOptions, setToast } = useApp();
 
+  // ✅ branche l'apiClient (JWT) dans le SDK une seule fois
+  useEffect(() => {
+    if (apiClient) setApiClient(apiClient);
+  }, [apiClient]);
+
   const mode = analysis?.mode === "multi" ? "multi" : "single";
-  const services = mode === "multi" ? (analysis?.services || []) : [];
+  const services = mode === "multi" ? analysis?.services || [] : [];
 
   const [loading, setLoading] = useState(false);
   const [pushing, setPushing] = useState(false);
@@ -114,7 +116,6 @@ export default function CiPreview() {
   // modal CD
   const [showCdModal, setShowCdModal] = useState(false);
 
-  // --- helper: reload preview (réutilisé après push)
   async function refreshPreview() {
     if (!repoId || !analysis) return;
     try {
@@ -147,7 +148,6 @@ export default function CiPreview() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [repoId, analysis]);
 
-  // --- computed for multi
   const mapByWD = useMemo(() => {
     const m = {};
     previews.forEach((p) => (m[p.service || "."] = p));
@@ -159,24 +159,21 @@ export default function CiPreview() {
   const shownPath = mode === "multi" ? (current?.filePath || "") : singlePath;
   const shownStatus = mode === "multi" ? (current?.status || "NOT_FOUND") : singleStatus;
 
-  // --- meta
   const metaItems = [
     { label: "Workflow path", value: shownPath },
     { label: "Status", value: shownStatus },
   ];
 
-  // --- all applied ?
-  const allApplied = mode === "multi"
-    ? (previews.length > 0 && previews.every((p) => p.status === "IDENTICAL"))
-    : (singleStatus === "IDENTICAL");
+  const allApplied =
+    mode === "multi"
+      ? previews.length > 0 && previews.every((p) => p.status === "IDENTICAL")
+      : singleStatus === "IDENTICAL";
 
-  // --- push handlers
   async function pushOne() {
-    const currentStrategy = "UPDATE_IF_EXISTS"; // CHANGE ici si besoin
+    const currentStrategy = "UPDATE_IF_EXISTS";
     try {
       setPushing(true);
 
-      // Pré-check par statut
       const statusToCheck = mode === "multi" ? (current?.status || "NOT_FOUND") : singleStatus;
       const pf = preflightForStatus(statusToCheck, currentStrategy);
       if (pf.block) {
@@ -221,10 +218,9 @@ export default function CiPreview() {
       setPushing(true);
 
       if (mode === "multi") {
-        // Pré-check global
-        const statuses = previews.map(p => (p.status || "NOT_FOUND").toUpperCase());
-        const allIdentical = statuses.length > 0 && statuses.every(s => s === "IDENTICAL");
-        const anyExists = statuses.some(s => s === "IDENTICAL" || s === "DIFFERENT");
+        const statuses = previews.map((p) => (p.status || "NOT_FOUND").toUpperCase());
+        const allIdentical = statuses.length > 0 && statuses.every((s) => s === "IDENTICAL");
+        const anyExists = statuses.some((s) => s === "IDENTICAL" || s === "DIFFERENT");
 
         if (allIdentical && currentStrategy === "UPDATE_IF_EXISTS") {
           setToast({ type: "info", message: "Already up to date — nothing to push.", position: "center" });
@@ -233,7 +229,8 @@ export default function CiPreview() {
         if (anyExists && currentStrategy === "FAIL_IF_EXISTS") {
           setToast({
             type: "error",
-            message: "Some files already exist and strategy is FAIL_IF_EXISTS — choose UPDATE_IF_EXISTS or CREATE_NEW_ALWAYS.",
+            message:
+              "Some files already exist and strategy is FAIL_IF_EXISTS — choose UPDATE_IF_EXISTS or CREATE_NEW_ALWAYS.",
             position: "center",
           });
           return;
@@ -257,24 +254,22 @@ export default function CiPreview() {
     }
   }
 
-  // --- actions
   const primary =
     mode === "multi"
-      ? { label: pushing ? "Pushing…" : "Push to GitHub", onClick: pushOne, disabled: pushing || loading || !current }
+      ? {
+          label: pushing ? "Pushing…" : "Push to GitHub",
+          onClick: pushOne,
+          disabled: pushing || loading || !current,
+        }
       : { label: pushing ? "Pushing…" : "Push to GitHub", onClick: pushOne, disabled: pushing || loading };
 
-      const secondary = [
-        { label: "Back", onClick: () => nav("/docker/preview"), disabled: loading || pushing },
-        { label: "Refresh", onClick: refreshPreview, disabled: loading || pushing, title: "Recharger l’aperçu" },
-      ];
-  // bouton "Proceed to CD" n'apparaît que si tout est appliqué
+  const secondary = [
+    { label: "Back", onClick: () => nav("/docker/preview"), disabled: loading || pushing },
+    { label: "Refresh", onClick: refreshPreview, disabled: loading || pushing, title: "Recharger l’aperçu" },
+  ];
+
   const cdButton = allApplied ? (
-    <button
-      className="btn"
-      onClick={() => setShowCdModal(true)}
-      style={{ marginRight: 8 }}
-      title="Proceed to CD"
-    >
+    <button className="btn" onClick={() => setShowCdModal(true)} style={{ marginRight: 8 }} title="Proceed to CD">
       Proceed to CD
     </button>
   ) : null;
@@ -292,7 +287,7 @@ export default function CiPreview() {
     );
 
   return (
-    <div className="page">
+    <div className="pipeline page">
       {/* Modal CD */}
       {showCdModal && (
         <div
@@ -322,7 +317,6 @@ export default function CiPreview() {
               padding: 20,
             }}
           >
-            {/* Bouton X */}
             <button
               onClick={() => setShowCdModal(false)}
               aria-label="Close modal"
