@@ -88,9 +88,9 @@
 .btn { padding:8px 12px; border-radius:6px; border:1px solid transparent; cursor:pointer; font-weight:600; }
 .btn-secondary { background:#1f2937; color:#cbd5e1; border-color:#334155; }
 .btn-secondary:hover { background:#334155; } */
-.btn-primary { background:#FE919E; color:#fff; border-color:#2563eb; }
+.btn-primary { background:#FE919E; color:#fff; border-color:#FE919E; }
 .btn-primary:hover { filter:brightness(1.05); } 
-
+.btn-primary-modal { background:green; color:#fff;  }
 /* Modal (tu peux garder ton dégradé si tu l'as déjà ajouté) */
 .modal-overlay { position:fixed; inset:0; background:rgba(0,0,0,.6); display:flex; align-items:center; justify-content:center; z-index:999; }
 .modal {
@@ -135,14 +135,6 @@
 .continue-btn:hover {
   opacity: 0.80; /* petit effet au survol */
 }
-/* 
-.edit-input-container {
-    background: linear-gradient(135deg, #423EE0 0%, #812DE2 100%);
-    padding: 10px;
-    border-radius: 8px;
-    display: flex;
-    align-items: center;
-} */
 
 .edit-input {
    background: linear-gradient(135deg, #423EE0 0%, #812DE2 100%);
@@ -171,6 +163,34 @@
     border-radius: 4px;
     padding: 5px 3px;
     cursor: pointer;
+}
+.service-section {
+  margin: 14px 0 20px;
+}
+/* Espace autour de chaque bloc service */
+.service-section {
+  margin: 14px 0 20px;
+}
+
+/* Petit espace sous le titre */
+.service-section h4 {
+  margin: 0 0 8px;
+}
+
+/* 👉 Indentation : décale tout ce qui n’est pas le titre */
+.service-section > *:not(h4) {
+  margin-left: 18px;      /* décale à droite les champs */
+}
+
+/* Optionnel : aère les lignes */
+.service-section .editable-field + .editable-field {
+  margin-top: 4px;
+}
+
+/* Optionnel : sépare visuellement les services */
+.service-section + .service-section {
+  border-top: 1px solid rgba(255,255,255,0.08);
+  padding-top: 12px;
 }
 
 .modal-header { padding:14px 16px; border-bottom:.5px solid rgba(255,255,255,.2); }
