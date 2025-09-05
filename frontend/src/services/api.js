@@ -7,19 +7,19 @@ export const setApiClient = (c) => { client = c; };
 // ---- Docker
 export async function previewDocker(payload) {
   if (!client) throw new Error("API client not initialized");
-  return client.post("/api/docker/preview", payload);
+  return client.post("/api/workflows/docker/preview", payload);
 }
 export async function applyDockerfile(payload) {
   if (!client) throw new Error("API client not initialized");
-  return client.post("/api/docker/apply", payload);
+  return client.post("/api/workflows/dockerfile/apply", payload);
 }
 
 // ---- CI
 export async function previewCi(payload) {
   if (!client) throw new Error("API client not initialized");
-  return client.post("/api/ci/preview", payload);
+  return client.post("/api/workflows/ci/preview", payload);
 }
 export async function generateCi(payload) {
   if (!client) throw new Error("API client not initialized");
-  return client.post("/api/ci/generate", payload);
+  return client.post("/api/workflows/generate", payload);
 }

@@ -1,10 +1,14 @@
 package com.example.demo.dto;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 
 import java.util.List;
 import java.util.Map;
 
+@JsonIgnoreProperties(ignoreUnknown = true) 
 public class StackAnalysis {
 
+
+    private String mode;
     private String stackType;
     private String javaVersion;
     private String orchestrator;         
@@ -18,6 +22,12 @@ public class StackAnalysis {
    
     private String databaseType; 
     private String databaseName; 
+
+        // Pour mode "multi"  
+    private List<ServiceAnalysis> services;  
+      
+    // Pour mode "single"   
+    private ServiceAnalysis analysis;  
    
     public StackAnalysis(String stackType,
                          String javaVersion,
@@ -76,4 +86,13 @@ public static StackAnalysis fromMap(Map<String,Object> svc) {
 
     public String getDatabaseName() { return databaseName; }
     public void setDatabaseName(String databaseName) { this.databaseName = databaseName; }
+
+    public String getMode() { return mode; }  
+    public void setMode(String mode) { this.mode = mode; }  
+
+    public List<ServiceAnalysis> getServices() { return services; }  
+    public void setServices(List<ServiceAnalysis> services) { this.services = services; }  
+      
+    public ServiceAnalysis getAnalysis() { return analysis; }  
+    public void setAnalysis(ServiceAnalysis analysis) { this.analysis = analysis; }
 }

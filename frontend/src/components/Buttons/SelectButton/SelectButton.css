@@ -1,0 +1,27 @@
+.custom-button {
+  background-color: #004d00;
+  color: #79FD4D;
+  font-size: clamp(14px, 1.6vw, 16px);
+  font-weight: bold;
+  border: none;
+  border-radius: 6px;
+  padding: clamp(8px, 1.2vw, 10px) clamp(14px, 2vw, 15px);
+  cursor: pointer;
+  text-transform: lowercase;
+  transition: transform 0.2s ease;
+}
+
+.custom-button:hover:not(.disabled) { transform: scale(1.05); }
+
+.custom-button.disabled {
+  background-color: #666;
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* utile sur mobile si tu veux un bouton pleine largeur */
+.custom-button.full-width { width: 100%; }
+
+@media (max-width: 480px) {
+  .custom-button:hover:not(.disabled) { transform: none; }
+}

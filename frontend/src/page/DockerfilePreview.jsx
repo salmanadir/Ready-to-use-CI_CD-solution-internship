@@ -121,6 +121,15 @@ export default function DockerfilePreview() {
     return plansByWD[selectedWD] || null;
   }, [mode, containerPlans, plansByWD, selectedWD]);
 
+  // 🔙 helper: retourner vers l’analyse du repo courant
+  const backToAnalysis = () => {
+    if (repoId) {
+      nav(`/analysis/${encodeURIComponent(repoId)}`);
+    } else {
+      nav("/dashboard/select-repo");
+    }
+  };
+
   useEffect(() => {
     if (!repoId || !analysis) return;
     loadPreview();
@@ -219,8 +228,8 @@ export default function DockerfilePreview() {
             </p>
           </div>
           <StickyActions
-            primary={{ label: "Go to Analyze", onClick: () => nav("/analyze") }}
-            secondary={{ label: "Back", onClick: () => nav("/analyze") }}
+            primary={{ label: "Go to Analyze", onClick: backToAnalysis }}
+            secondary={{ label: "Back", onClick: backToAnalysis }}
             right={null}
             center={
               <button
@@ -277,7 +286,7 @@ export default function DockerfilePreview() {
         };
 
   const secondaryAction = [
-    { label: "Back", onClick: () => nav("/analyze"), disabled: loading || applying },
+    { label: "Back", onClick: backToAnalysis, disabled: loading || applying },
     { label: "Refresh", onClick: loadPreview, disabled: loading || applying, title: "Refresh previews" },
   ];
 
@@ -342,7 +351,7 @@ export default function DockerfilePreview() {
           center={
             <button
               className="btn ghost"
-              onClick={() => nav("/")}
+              onClick={() => nav("/dashboard")}
               style={{ minWidth: 260, backgroundColor: "purple" }}
               aria-label="Go back Home"
               title="Go back Home"

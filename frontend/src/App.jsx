@@ -1,7 +1,8 @@
+
+
 import React from 'react';
 import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
-
 import LandingPage from './pages/LandingPage/LandingPage';
 import Dashboard from './pages/Dashboard/Dashboard';
 import CDGeneration from './pages/Dashboard/cdGeneration';
@@ -12,31 +13,31 @@ import RepoAnalysisPage from './pages/RepoAnalysis/RepoAnalysisPage';
 import RepoSelectionPage from './pages/RepoSelection/RepoSelectionPage';
 
 // 👉 ajoute tes pages pipeline
-import DockerfilePreview from './pages/DockerfilePreview';
-import CiPreview from './pages/CiPreview';
+import DockerfilePreview from './page/DockerfilePreview';
+import CiPreview from './page/CiPreview';
 
 import "@fortawesome/fontawesome-free/css/all.min.css";
 import './App.css';
 
+
 function App() {
   return (
     <AuthProvider>
-      <Router>
         <Routes>
           {/* Public routes */}
           <Route path="/" element={<LandingPage />} />
           <Route path="/auth/callback" element={<AuthCallback />} />
           <Route path="/LandingTest" element={<LandingPage />} />
 
-          {/* Protected routes */}
           <Route
-            path="/dashboard"
-            element={
-              <ProtectedRoute>
-                <Dashboard />
-              </ProtectedRoute>
-            }
-          />
+          path="/dashboard"
+          element={
+            <ProtectedRoute>
+              <Dashboard />
+            </ProtectedRoute>
+          }
+        />
+          
 
           <Route
             path="/dashboard/select-repo"
@@ -74,6 +75,7 @@ function App() {
             }
           />
 
+
           <Route
             path="/dashboard/cd-generation"
             element={
@@ -83,7 +85,6 @@ function App() {
             }
           />
         </Routes>
-      </Router>
     </AuthProvider>
   );
 }
