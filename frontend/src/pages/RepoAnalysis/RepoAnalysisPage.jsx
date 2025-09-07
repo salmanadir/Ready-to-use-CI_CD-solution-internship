@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useLocation, useSearchParams, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import "./RepoAnalysisPage.css";
+import { useApp } from "../../store/AppContext";
 
 
 const ND = "NONE";
@@ -386,6 +387,7 @@ export default function RepoAnalysisPage() {
   const [params] = useSearchParams();
   const navigate = useNavigate();
   const { apiClient } = useAuth();
+  const { setRepoId, setAnalysis: setAppAnalysis } = useApp();
 
   const repo = location.state?.repo || null;
   const repoFullName = repo?.fullName || params.get("repo") || "unknown/repo";
@@ -709,19 +711,31 @@ export default function RepoAnalysisPage() {
 
   
   const onConfirmProceed = async () => {
-    try {
-      setConfirmLoading(true);
-      const ok = await saveAnalysisToBackend();
-      if (ok) {
-        setHasUnsavedChanges(false); 
-        setConfirmedOnce(true);
-        setRepoConfirmed(repo?.repoId, true);
-      }
-      setConfirmOpen(false); 
-    } finally {
-      setConfirmLoading(false);
-    }
-  };
+        try {
+          setConfirmLoading(true);
+          const ok = await saveAnalysisToBackend();
+          if (!ok) {
+            // on ne bouge pas si la sauvegarde a échoué
+            setConfirmLoading(false);
+            return;
+          }
+    
+         // Marque comme confirmé côté localStorage
+         setRepoConfirmed(repo?.repoId, true);
+          setHasUnsavedChanges(false);
+          setConfirmedOnce(true);
+    
+          // ✅ Propager les données au contexte utilisé par Docker/CI
+          if (repo?.repoId) setRepoId(repo.repoId);
+          if (analysis)      setAppAnalysis(analysis); // { mode, analysis || services, ... }
+    
+          // Ferme la modal puis redirige vers la page Docker
+          setConfirmOpen(false);
+          navigate("/docker/preview");
+        } finally {
+          setConfirmLoading(false);
+       }
+      };
 
   const EditableField = ({ label, value, path }) => {
     const isEditing = editingField === path;

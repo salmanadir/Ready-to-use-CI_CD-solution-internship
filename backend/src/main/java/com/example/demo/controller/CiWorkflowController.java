@@ -35,6 +35,8 @@ public class CiWorkflowController {
     @Autowired private ContainerizationWriter containerizationWriter;
     @Autowired private DockerfileHistoryService dockerfileHistoryService;
     @Autowired private DockerComposeHistoryService dockerComposeHistoryService;
+    @Autowired private DockerfileGenerationService dockerfileGenerationService;
+
 
 
     // NEW: service dédié au compose de prod
@@ -42,65 +44,160 @@ public class CiWorkflowController {
 
     // =====================================================================================
     // A) PREVIEW (ne push rien) — SINGLE ou MULTI selon request.services
-    //    -> ne traite QUE Dockerfile/CI (aucune logique compose ici)
+    //    -> ne traite QUE Dockerfile/CI 
     // =====================================================================================
     @PostMapping("/docker/preview")
-    public ResponseEntity<?> previewDocker(@RequestBody WorkflowGenerationRequest request,
-                                           Authentication authentication) {
-        try {
-            var repo = requireAuthAndRepo(authentication, request.getRepoId());
-            if (repo == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
-                    "success", false, "message", "Authentication required or repo not found / not owned"
-            ));
+public ResponseEntity<?> previewDocker(@RequestBody WorkflowGenerationRequest request,
+                                       Authentication authentication) {
+    try {
+        var repo = requireAuthAndRepo(authentication, request.getRepoId());
+        if (repo == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
+                "success", false, "message", "Authentication required or repo not found / not owned"
+        ));
 
-            String token = repo.getUser().getToken();
-            if (token == null || token.isEmpty()) {
-                return ResponseEntity.badRequest().body(Map.of("success", false, "message", "GitHub token not found for user"));
-            }
-            gitHubService.setCurrentToken(token);
-
-            WorkflowGenerationRequest.DockerOptions docker = request.getDocker();
-            if (docker == null) docker = new WorkflowGenerationRequest.DockerOptions();
-
-            // ---- MULTI: plans par service (uniquement Dockerfiles)
-            if (request.getServices()!=null && !request.getServices().isEmpty()) {
-                var plans = containerizationService.planMulti(
-                        repo.getUrl(), token, repo.getFullName(), request.getServices(), docker.getRegistry());
-                boolean readyForCi = plans.stream().noneMatch(ServiceContainerPlan::isShouldGenerateDockerfile);
-                return ResponseEntity.ok(Map.of(
-                        "success", true,
-                        "mode", "multi",
-                        "readyForCi", readyForCi,
-                        "plans", plans
-                ));
-            }
-
-            // ---- SINGLE
-            StackAnalysis info = request.getTechStackInfo();
-            if (info == null) {
-                return ResponseEntity.badRequest().body(Map.of("success", false, "message", "TechStackInfo is null"));
-            }
-
-            ContainerPlan containerPlan = containerizationService.plan(
-                    repo.getUrl(), token,
-                    (docker.getImageNameOverride() == null || docker.getImageNameOverride().isBlank())
-                            ? repo.getFullName() : docker.getImageNameOverride(),
-                    info, docker.getImageNameOverride(), docker.getRegistry()
-            );
-
-            boolean readyForCi = !containerPlan.isShouldGenerateDockerfile();
-
-            Map<String,Object> out = new HashMap<>();
-            out.put("success", true);
-            out.put("mode", "single");
-            out.put("readyForCi", readyForCi);
-            out.put("containerPlan", containerPlan);
-            return ResponseEntity.ok(out);
-
-        } catch (Exception e) {
-            return ResponseEntity.internalServerError().body(Map.of("success", false, "message", e.getMessage()));
+        String token = repo.getUser().getToken();
+        if (token == null || token.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "GitHub token not found for user"));
         }
+        gitHubService.setCurrentToken(token);
+
+        WorkflowGenerationRequest.DockerOptions docker = request.getDocker();
+        if (docker == null) docker = new WorkflowGenerationRequest.DockerOptions();
+
+        // ---- MULTI: return one enriched plan per service with preview filled
+if (request.getServices()!=null && !request.getServices().isEmpty()) {
+
+    List<Map<String,Object>> enriched = new ArrayList<>();
+
+    for (Map<String,Object> svc : request.getServices()) {
+        // 1) Rebuild the service info
+        StackAnalysis info = StackAnalysis.fromMap(svc);
+        if (info == null) continue;
+
+        // Keep EXACTLY the WD coming from /analyze
+        String svcWd = (info.getWorkingDirectory()==null || info.getWorkingDirectory().isBlank())
+                ? "." : info.getWorkingDirectory();
+
+        // 2) Build a per-service container plan
+        ContainerPlan p = containerizationService.plan(
+                repo.getUrl(), token,
+                (docker.getImageNameOverride() == null || docker.getImageNameOverride().isBlank())
+                        ? repo.getFullName() : docker.getImageNameOverride(),
+                info, docker.getImageNameOverride(), docker.getRegistry()
+        );
+
+        // 3) Choose path and compute preview content
+        String path = (p.getDockerfilePath()==null || p.getDockerfilePath().isBlank())
+                ? defaultDockerfilePath(svcWd)
+                : p.getDockerfilePath();
+
+        String previewContent;
+        String previewSource;
+
+        if (!p.isShouldGenerateDockerfile()) {
+            // Try reading existing file from GitHub
+            String existing = null;
+            try { existing = gitHubService.getFileContent(repo.getUrl(), token, path); } catch (Exception ignore) {}
+            if (existing != null && !existing.isBlank()) {
+                previewContent = existing;
+                previewSource  = "existing";
+            } else {
+                // Safe fallback
+                previewContent = dockerfileGenerationService.generate(info);
+                previewSource  = "generated";
+            }
+        } else {
+            // No Dockerfile yet → generate a draft
+            previewContent = dockerfileGenerationService.generate(info);
+            previewSource  = "generated";
+        }
+
+        Map<String,Object> m = new HashMap<>();
+        m.put("workingDirectory", svcWd);
+        m.put("dockerfilePath", path);
+        m.put("shouldGenerateDockerfile", p.isShouldGenerateDockerfile());
+        m.put("previewDockerfileContent", previewContent);
+        m.put("previewSource", previewSource);
+
+        // optional but handy in the UI
+        m.put("registry", p.getRegistry()!=null ? p.getRegistry() : "ghcr.io");
+        m.put("imageName", p.getImageName());
+        m.put("dockerContext", p.getDockerContext());
+
+        enriched.add(m);
     }
+
+    boolean readyForCi = enriched.stream().noneMatch(mp ->
+            Boolean.TRUE.equals(mp.get("shouldGenerateDockerfile")));
+
+    return ResponseEntity.ok(Map.of(
+            "success", true,
+            "mode", "multi",
+            "readyForCi", readyForCi,
+            "plans", enriched
+    ));
+}
+
+
+        // ----------------------- MODE SINGLE -----------------------
+        StackAnalysis info = request.getTechStackInfo();
+        if (info == null) {
+            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "TechStackInfo is null"));
+        }
+
+        ContainerPlan containerPlan = containerizationService.plan(
+                repo.getUrl(), token,
+                (docker.getImageNameOverride() == null || docker.getImageNameOverride().isBlank())
+                        ? repo.getFullName() : docker.getImageNameOverride(),
+                info, docker.getImageNameOverride(), docker.getRegistry()
+        );
+
+        // enrichir: toujours mettre quelque chose dans previewDockerfileContent
+        if (!containerPlan.isShouldGenerateDockerfile()) {
+            String path = containerPlan.getDockerfilePath();
+            if (path == null || path.isBlank()) {
+                path = defaultDockerfilePath(info.getWorkingDirectory());
+                containerPlan.setDockerfilePath(path);
+            }
+            try {
+                String existing = gitHubService.getFileContent(repo.getUrl(), token, path);
+                if (existing != null) {
+                    containerPlan.setExistingDockerfileContent(existing);
+                    containerPlan.setPreviewDockerfileContent(existing);
+                    containerPlan.setPreviewSource("existing");
+                }
+            } catch (Exception ignore) {}
+        } else {
+            String gen = dockerfileGenerationService.generate(info);
+            containerPlan.setGeneratedDockerfileContent(gen);
+            containerPlan.setProposedDockerfileContent(gen);
+            containerPlan.setPreviewDockerfileContent(gen);
+            containerPlan.setPreviewSource("generated");
+            if (containerPlan.getDockerfilePath()==null || containerPlan.getDockerfilePath().isBlank()) {
+                containerPlan.setDockerfilePath(defaultDockerfilePath(info.getWorkingDirectory()));
+            }
+        }
+
+        boolean readyForCi = !containerPlan.isShouldGenerateDockerfile();
+
+        Map<String,Object> out = new HashMap<>();
+        out.put("success", true);
+        out.put("mode", "single");
+        out.put("readyForCi", readyForCi);
+        out.put("containerPlan", containerPlan);
+        return ResponseEntity.ok(out);
+
+    } catch (Exception e) {
+        return ResponseEntity.internalServerError().body(Map.of("success", false, "message", e.getMessage()));
+    }
+}
+private String defaultDockerfilePath(String workingDir) {
+    String wd = (workingDir==null || workingDir.isBlank()) ? "." : workingDir;
+    if (".".equals(wd)) return "Dockerfile";
+    String clean = wd.replaceFirst("^\\./","").replaceAll("/+$","");
+    return clean + "/Dockerfile";
+}
+
 
     // =====================================================================================
     // B) APPLY DOCKERFILE (push) — SINGLE ou MULTI
@@ -387,6 +484,110 @@ private Collection<String> extractServiceNamesFromRequest(WorkflowGenerationRequ
     
     return serviceNames.isEmpty() ? null : serviceNames;
 }
+// =====================================================================================
+// CI — PREVIEW (ne push rien) — SINGLE ou MULTI
+// =====================================================================================
+@PostMapping("/ci/preview")
+public ResponseEntity<?> previewCi(@RequestBody WorkflowGenerationRequest request,
+                                   Authentication authentication) {
+    try {
+        var repo = requireAuthAndRepo(authentication, request.getRepoId());
+        if (repo == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
+                "success", false, "message", "Authentication required or repo not found / not owned"
+        ));
+
+        String token = repo.getUser().getToken();
+        if (token == null || token.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "GitHub token not found for user"));
+        }
+        gitHubService.setCurrentToken(token);
+
+        WorkflowGenerationRequest.DockerOptions docker = request.getDocker();
+        if (docker == null) docker = new WorkflowGenerationRequest.DockerOptions();
+
+        // -------- MODE MULTI
+if (request.getServices() != null && !request.getServices().isEmpty()) {
+    List<Map<String, Object>> previews = new ArrayList<>();
+
+    // 👇 NEW: compteurs par outil
+    Map<String, Integer> toolCounters = new HashMap<>();
+
+    for (Map<String, Object> svc : request.getServices()) {
+        StackAnalysis info = StackAnalysis.fromMap(svc);
+        if (info == null) continue;
+
+        // Construit le YAML (et vérifie que le Dockerfile est bien appliqué)
+        Map<String, Object> built = buildCiContentAndPath(repo, info, docker, token);
+        String content  = (String) built.get("content");
+
+        // 👇 NEW: nom de fichier basé sur l'outil (maven/gradle/npm→node) + suffixes 2,3...
+        String buildToolLower = (info.getBuildTool() == null) ? "" : info.getBuildTool().toLowerCase();
+        String fileName = nextCiFileName(buildToolLower, toolCounters);
+        String filePath = workflowsPath(fileName);
+
+        // Lire le fichier existant à CE chemin
+        String existing = null;
+        try { existing = gitHubService.getFileContent(repo.getUrl(), token, filePath); } catch (Exception ignore) {}
+
+        String status = (existing == null) ? "NOT_FOUND" : (existing.equals(content) ? "IDENTICAL" : "DIFFERENT");
+
+        previews.add(Map.of(
+                "service", info.getWorkingDirectory(),
+                "filePath", filePath,           // 👈 chemin imposé
+                "status", status,
+                "intendedStrategy", request.getFileHandlingStrategy() != null
+                        ? request.getFileHandlingStrategy().name()
+                        : "UPDATE_IF_EXISTS",
+                "content", content
+        ));
+    }
+
+    return ResponseEntity.ok(Map.of(
+            "success", true,
+            "mode", "multi",
+            "previews", previews
+    ));
+}
+
+        // -------- MODE SINGLE
+        StackAnalysis info = request.getTechStackInfo();
+        if (info == null) {
+            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "TechStackInfo is null in request"));
+        }
+
+        Map<String, Object> built = buildCiContentAndPath(repo, info, docker, token);
+        String filePath = (String) built.get("filePath");
+        String content  = (String) built.get("content");
+
+        String existing = null;
+        try {
+            existing = gitHubService.getFileContent(repo.getUrl(), token, filePath);
+        } catch (Exception ignore) {}
+
+        String status = (existing == null) ? "NOT_FOUND" : (existing.equals(content) ? "IDENTICAL" : "DIFFERENT");
+
+        return ResponseEntity.ok(Map.of(
+                "success", true,
+                "mode", "single",
+                "filePath", filePath,
+                "status", status,
+                "intendedStrategy", request.getFileHandlingStrategy() != null ? request.getFileHandlingStrategy().name() : "UPDATE_IF_EXISTS",
+                "content", content
+        ));
+
+    } catch (IllegalStateException ie) {
+        // cas Dockerfile non appliqué -> 428 pour cohérence avec /generate
+        return ResponseEntity.status(428).body(Map.of(
+                "success", false,
+                "message", ie.getMessage(),
+                "hintPreviewDocker", "/api/workflows/docker/preview",
+                "hintApplyDocker", "/api/workflows/dockerfile/apply"
+        ));
+    } catch (Exception e) {
+        return ResponseEntity.internalServerError().body(Map.of("success", false, "message", e.getMessage()));
+    }
+}
+
     // =====================================================================================
     // E) GENERATE CI (push) — SINGLE ou MULTI
     //     
@@ -411,84 +612,86 @@ private Collection<String> extractServiceNamesFromRequest(WorkflowGenerationRequ
             if (docker == null) docker = new WorkflowGenerationRequest.DockerOptions();
 
             // -------- MODE MULTI
-            if (request.getServices() != null && !request.getServices().isEmpty()) {
-                List<Map<String, Object>> results = new ArrayList<>();
+if (request.getServices() != null && !request.getServices().isEmpty()) {
+    List<Map<String, Object>> results = new ArrayList<>();
 
-                int index = 0;
-                for (Map<String,Object> svc : request.getServices()) {
-                    StackAnalysis info = StackAnalysis.fromMap(svc);
-                    if (info == null) continue;
+    // 👇 NEW: compteurs par outil pour générer des noms stables et sans collisions
+    Map<String, Integer> toolCounters = new HashMap<>();
 
-                    ContainerPlan containerPlan = containerizationService.plan(
-                            repo.getUrl(), token,
-                            (docker.getImageNameOverride() == null || docker.getImageNameOverride().isBlank())
-                                    ? repo.getFullName() : docker.getImageNameOverride(),
-                            info, docker.getImageNameOverride(), docker.getRegistry()
-                    );
+    for (Map<String,Object> svc : request.getServices()) {
+        StackAnalysis info = StackAnalysis.fromMap(svc);
+        if (info == null) continue;
 
-                    if (containerPlan.isShouldGenerateDockerfile()) {
-                        return ResponseEntity.status(428).body(Map.of(
-                                "success", false,
-                                "message", "Dockerfile not applied yet for service: " + info.getWorkingDirectory(),
-                                "service", info.getWorkingDirectory()
-                        ));
-                    }
+        ContainerPlan containerPlan = containerizationService.plan(
+                repo.getUrl(), token,
+                (docker.getImageNameOverride() == null || docker.getImageNameOverride().isBlank())
+                        ? repo.getFullName() : docker.getImageNameOverride(),
+                info, docker.getImageNameOverride(), docker.getRegistry()
+        );
 
-                    String templatePath = templateService.getTemplatePath(info);
+        if (containerPlan.isShouldGenerateDockerfile()) {
+            return ResponseEntity.status(428).body(Map.of(
+                    "success", false,
+                    "message", "Dockerfile not applied yet for service: " + info.getWorkingDirectory(),
+                    "service", info.getWorkingDirectory()
+            ));
+        }
 
-                    Map<String, String> replacements = new HashMap<>();
-                    String workingDir = (info.getWorkingDirectory() == null || info.getWorkingDirectory().isBlank()) ? "." : info.getWorkingDirectory();
-                    replacements.put("workingDirectory", workingDir);
+        String templatePath = templateService.getTemplatePath(info);
 
-                    String buildToolLower = (info.getBuildTool() == null) ? "" : info.getBuildTool().toLowerCase();
-                    if ("maven".equals(buildToolLower) || "gradle".equals(buildToolLower)) {
-                        replacements.put("javaVersion", (info.getJavaVersion() != null && !info.getJavaVersion().isBlank())
-                                ? info.getJavaVersion() : "17");
-                    } else if ("npm".equals(buildToolLower)) {
-                        String nodeVersion = null;
-                        if (info.getProjectDetails() != null) {
-                            Object v = info.getProjectDetails().get("nodeVersion");
-                            nodeVersion = (v != null) ? v.toString() : null;
-                        }
-                        replacements.put("nodeVersion", resolveNodeVersionForActions(nodeVersion));
-                    }
+        Map<String, String> replacements = new HashMap<>();
+        String workingDir = (info.getWorkingDirectory() == null || info.getWorkingDirectory().isBlank()) ? "." : info.getWorkingDirectory();
+        replacements.put("workingDirectory", workingDir);
 
-                    replacements.putAll(containerPlan.placeholders());
-
-                    String content = templateRenderer.renderTemplate(templatePath, replacements);
-
-                    // nom unique par service
-                    String fileName = "ci-" + (info.getWorkingDirectory() != null ? info.getWorkingDirectory().replace("/", "-") : "service-" + index) + ".yml";
-                    String filePath = ".github/workflows/" + fileName;
-
-                    try { gitHubService.getUserInfo(token); } catch (Exception e) {
-                        return ResponseEntity.badRequest().body(Map.of("success", false, "message", "GitHub connection failed: " + e.getMessage()));
-                    }
-
-                    GitHubService.PushResult pr = gitHubService.pushWorkflowToGitHub(
-                            token, repo.getFullName(), repo.getDefaultBranch(), filePath, content,
-                            GitHubService.FileHandlingStrategy.valueOf(request.getFileHandlingStrategy().name())
-                    );
-
-                    if (pr.getCommitHash() != null) {
-                        CiWorkflow workflow = workflowService.saveWorkflowAfterPush(repo, content, pr.getCommitHash());
-                        System.out.println("Workflow MULTI sauvegardé en base avec ID: " + workflow.getCiWorkflowId());
-                    }
-
-                    results.add(Map.of(
-                            "service", info.getWorkingDirectory(),
-                            "filePath", filePath,
-                            "commitHash", pr.getCommitHash()
-                    ));
-                    index++;
-                }
-
-                return ResponseEntity.ok(Map.of(
-                        "success", true,
-                        "mode", "multi",
-                        "workflows", results
-                ));
+        String buildToolLower = (info.getBuildTool() == null) ? "" : info.getBuildTool().toLowerCase();
+        if ("maven".equals(buildToolLower) || "gradle".equals(buildToolLower)) {
+            replacements.put("javaVersion", (info.getJavaVersion() != null && !info.getJavaVersion().isBlank())
+                    ? info.getJavaVersion() : "17");
+        } else if ("npm".equals(buildToolLower)) {
+            String nodeVersion = null;
+            if (info.getProjectDetails() != null) {
+                Object v = info.getProjectDetails().get("nodeVersion");
+                nodeVersion = (v != null) ? v.toString() : null;
             }
+            replacements.put("nodeVersion", resolveNodeVersionForActions(nodeVersion));
+        }
+
+        replacements.putAll(containerPlan.placeholders());
+
+        String content = templateRenderer.renderTemplate(templatePath, replacements);
+
+        // 👇 NEW: impose un nom par outil, avec suffixes si plusieurs services du même outil
+        String fileName = nextCiFileName(buildToolLower, toolCounters);
+        String filePath = workflowsPath(fileName);
+
+        try { gitHubService.getUserInfo(token); } catch (Exception e) {
+            return ResponseEntity.badRequest().body(Map.of("success", false, "message", "GitHub connection failed: " + e.getMessage()));
+        }
+
+        GitHubService.PushResult pr = gitHubService.pushWorkflowToGitHub(
+                token, repo.getFullName(), repo.getDefaultBranch(), filePath, content,
+                GitHubService.FileHandlingStrategy.valueOf(request.getFileHandlingStrategy().name())
+        );
+
+        if (pr.getCommitHash() != null) {
+            CiWorkflow workflow = workflowService.saveWorkflowAfterPush(repo, content, pr.getCommitHash());
+            System.out.println("Workflow MULTI sauvegardé en base avec ID: " + workflow.getCiWorkflowId());
+        }
+
+        results.add(Map.of(
+                "service", info.getWorkingDirectory(),
+                "filePath", filePath,           // 👈 renvoyer le chemin réellement poussé
+                "commitHash", pr.getCommitHash()
+        ));
+    }
+
+    return ResponseEntity.ok(Map.of(
+            "success", true,
+            "mode", "multi",
+            "workflows", results
+    ));
+}
+
 
             // -------- MODE SINGLE
             StackAnalysis info = request.getTechStackInfo();
@@ -571,10 +774,101 @@ private Collection<String> extractServiceNamesFromRequest(WorkflowGenerationRequ
             return ResponseEntity.internalServerError().body(Map.of("success", false, "message", "Unexpected error: " + e.getMessage()));
         }
     }
+// ======================
+// Helper commun (build du YAML + path cible) — SINGLE
+// ======================
+private Map<String, Object> buildCiContentAndPath(
+        Repo repo,
+        StackAnalysis info,
+        WorkflowGenerationRequest.DockerOptions docker,
+        String token
+) throws Exception {
+
+    // 1) Plan de containerisation
+    ContainerPlan containerPlan = containerizationService.plan(
+            repo.getUrl(), token,
+            (docker.getImageNameOverride() == null || docker.getImageNameOverride().isBlank())
+                    ? repo.getFullName() : docker.getImageNameOverride(),
+            info, docker.getImageNameOverride(), docker.getRegistry()
+    );
+
+    if (containerPlan.isShouldGenerateDockerfile()) {
+        // même règle que /generate : on n'autorise pas la génération CI tant que le Dockerfile n'est pas appliqué
+        throw new IllegalStateException(
+                "Dockerfile not applied yet. Preview + apply the Dockerfile before generating CI."
+        );
+    }
+
+    // 2) Template selon le stack
+    String templatePath = templateService.getTemplatePath(info);
+
+    // 3) Placeholders
+    Map<String, String> replacements = new HashMap<>();
+    String workingDir = (info.getWorkingDirectory() == null || info.getWorkingDirectory().isBlank())
+            ? "." : info.getWorkingDirectory();
+    replacements.put("workingDirectory", workingDir);
+
+    String buildToolLower = (info.getBuildTool() == null) ? "" : info.getBuildTool().toLowerCase();
+    if ("maven".equals(buildToolLower) || "gradle".equals(buildToolLower)) {
+        replacements.put("javaVersion",
+                (info.getJavaVersion() != null && !info.getJavaVersion().isBlank()) ? info.getJavaVersion() : "17");
+    } else if ("npm".equals(buildToolLower)) {
+        String nodeVersion = null;
+        if (info.getProjectDetails() != null) {
+            Object v = info.getProjectDetails().get("nodeVersion");
+            nodeVersion = (v != null) ? v.toString() : null;
+        }
+        replacements.put("nodeVersion", resolveNodeVersionForActions(nodeVersion));
+    }
+
+    // placeholders du plan (image, registry, docker context/path, etc.)
+    replacements.putAll(containerPlan.placeholders());
+
+    // 4) YAML final
+    String content = templateRenderer.renderTemplate(templatePath, replacements);
+
+    // 5) Chemin cible
+    String fileName = switch (buildToolLower) {
+        case "maven" -> "maven-ci.yml";
+        case "gradle" -> "gradle-ci.yml";
+        case "npm" -> "npm-ci.yml";
+        default -> "ci.yml";
+    };
+    String filePath = ".github/workflows/" + fileName;
+
+    Map<String, Object> out = new HashMap<>();
+    out.put("content", content);
+    out.put("filePath", filePath);
+    out.put("containerPlan", containerPlan);
+    out.put("buildTool", buildToolLower);
+    return out;
+}
 
     // ======================
     // Helpers (privés)
     // ======================
+    // Mappe "npm" -> "node", sinon retourne l'outil en minuscules.
+private static String toolSlug(String buildToolLower) {
+    if (buildToolLower == null) return "generic";
+    String t = buildToolLower.toLowerCase();
+    return switch (t) {
+        case "npm" -> "node";
+        default -> t.replaceAll("[^a-z0-9]+", "-");
+    };
+}
+
+/** Incrémente un compteur par outil pour générer ci-generated-<tool>.yml, ci-generated-<tool>-2.yml, ... */
+private static String nextCiFileName(String buildToolLower, Map<String, Integer> counters) {
+    String slug = toolSlug(buildToolLower);
+    int n = counters.merge(slug, 1, Integer::sum);
+    return (n == 1) ? ("ci-generated-" + slug + ".yml")
+                    : ("ci-generated-" + slug + "-" + n + ".yml");
+}
+
+private static String workflowsPath(String fileName) {
+    return ".github/workflows/" + fileName;
+}
+
     private Repo requireAuthAndRepo(Authentication authentication, Long repoId) {
         try {
             if (authentication == null || !authentication.isAuthenticated()) return null;
