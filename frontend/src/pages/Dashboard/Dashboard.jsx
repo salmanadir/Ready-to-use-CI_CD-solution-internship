@@ -23,7 +23,7 @@ const Dashboard = () => {
       description: 'Create Continuous Integration workflows for automated testing',
       icon: '⚡',
       color: 'from-green-500 to-green-600',
-      path: '/generate-ci'
+      path: '/docker/preview'
     },
     {
       id: 'generate-cd',
