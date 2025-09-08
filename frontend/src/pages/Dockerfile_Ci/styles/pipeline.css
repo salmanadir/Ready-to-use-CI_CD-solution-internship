@@ -1,0 +1,189 @@
+
+
+/* 1) Contexte + typographie fluide */
+.pipeline{
+  --bg:#0b1220;
+  --panel:#0f172a;
+  --card:#111827;
+  --muted:#94a3b8;
+  --text:#e5e7eb;
+  --primary:#2563eb;
+  --primary-contrast:#fff;
+  --ok:#16a34a;
+  --warn:#f59e0b;
+  --success:#16a34a;
+  --info:#2563eb;
+  --border:#1f2937;
+
+  background: linear-gradient(180deg, #0b1220, #0b1220 200px, #0a0f1a);
+  color: var(--text);
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Arial;
+
+  /* taille de base qui s’adapte aux écrans */
+  font-size: clamp(14px, 1.4vw, 16px);
+  line-height: 1.5;
+}
+
+/* liens */
+.pipeline a{ color: var(--primary); text-decoration:none; }
+
+/* ====== Layout full height ====== */
+.pipeline .page{
+  padding:24px 12px;
+  min-height:100vh;
+  display:flex;
+}
+
+/* 2) conteneur fluide + padding responsive */
+.pipeline .container{
+  width: min(100%, 1200px);
+  margin: 0 auto;
+  flex: 1;
+  display:flex;
+  flex-direction:column;
+  gap:16px;
+  padding-inline: clamp(8px, 2vw, 16px);
+  padding-bottom: clamp(64px, 10vh, 88px);
+}
+
+.pipeline .h1{ font-size: clamp(20px, 2.4vw, 24px); margin:0 0 4px; }
+.pipeline .muted{ color:var(--muted); margin:0; }
+
+/* 3) entête: passe en pile sur petits écrans */
+.pipeline .step-header{
+  display:flex; align-items:flex-start; justify-content:space-between;
+  gap:16px; margin-bottom:16px; flex-wrap: wrap;
+}
+.pipeline .chips{ display:flex; gap:8px; flex-wrap:wrap; }
+.pipeline .chip{
+  padding:6px 10px; border-radius:999px; background:#0b1529;
+  border:1px solid var(--border); font-size:12px; color:var(--text);
+}
+.pipeline .chip.success{ background:rgba(22,163,74,.15); border-color:rgba(22,163,74,.5); }
+.pipeline .chip.info{ background:rgba(37,99,235,.15); border-color:rgba(37,99,235,.5); }
+
+/* 4) grilles fluides avec breakpoints affinés */
+.pipeline .grid-4{
+  display:grid;
+  grid-template-columns: repeat(4, minmax(0,1fr));
+  gap:12px; margin-bottom:12px;
+}
+@media (max-width: 1100px){
+  .pipeline .grid-4{ grid-template-columns: repeat(3, minmax(0,1fr)); }
+}
+@media (max-width: 900px){
+  .pipeline .grid-4{ grid-template-columns: repeat(2, minmax(0,1fr)); }
+}
+@media (max-width: 520px){
+  .pipeline .grid-4{ grid-template-columns: 1fr; }
+}
+
+.pipeline .card{
+  background:var(--card); border:1px solid var(--border);
+  border-radius:14px; padding: clamp(12px, 2vw, 14px);
+}
+.pipeline .meta .meta-label{ font-size:12px; color:var(--muted); }
+.pipeline .meta .meta-value{
+  font-size:14px; margin-top:4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+
+/* 5) layout avec sidebar: stack + ordre contrôlé */
+.pipeline .layout.with-sidebar{
+  display:grid; grid-template-columns: 280px 1fr; gap:16px; align-items:start;
+}
+@media (max-width: 900px){
+  .pipeline .layout.with-sidebar{
+    grid-template-columns: 1fr;
+  }
+  /* place la sidebar sous le contenu si tu préfères */
+  .pipeline .sidebar{ order: 2; }
+  .pipeline .main{ order: 1; }
+}
+
+/* 6) sidebar sticky seulement quand il y a la place */
+.pipeline .sidebar{
+  position: sticky; top:12px; height: max-content;
+}
+@media (max-width: 900px){
+  .pipeline .sidebar{ position: static; }
+}
+
+.pipeline .service-list{ display:flex; flex-direction:column; gap:8px; }
+.pipeline .service-item{
+  width:100%; text-align:left; background:var(--panel);
+  border:1px solid var(--border); border-radius:12px; padding:12px;
+  color:var(--text); cursor:pointer;
+}
+.pipeline .service-item.active{ outline:2px solid var(--primary); }
+.pipeline .svc-title{ font-weight:600; }
+.pipeline .svc-sub{ display:flex; gap:8px; margin:8px 0; flex-wrap: wrap; }
+.pipeline .badge{
+  font-size:12px; padding:3px 8px; border-radius:999px; background:#0b1529; border:1px solid var(--border);
+}
+.pipeline .badge.ok{ background:rgba(22,163,74,.15); border-color:rgba(22,163,74,.5); }
+.pipeline .badge.warn{ background:rgba(245,158,11,.15); border-color:rgba(245,158,11,.5); }
+.pipeline .svc-path{
+  font-size:12px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+}
+
+/* 7) contenu principal */
+.pipeline .main{ display:flex; flex-direction:column; gap:12px; }
+
+/* 8) code viewer: hauteur adaptée + zones tactiles */
+.pipeline .code-viewer{ position:relative; }
+.pipeline .code-viewer pre{
+  margin:0; padding:14px; background:#0a0f1a; color:#cbd5e1;
+  border-radius:10px; overflow:auto; border:1px solid var(--border);
+  /* plus haut sur desktop, plus bas sur mobile */
+  max-height: min(60vh, 700px);
+}
+@media (max-width: 640px){
+  .pipeline .code-viewer pre{
+    max-height: 50vh;
+    padding: 12px;
+  }
+}
+.pipeline .code-actions{ display:flex; justify-content:flex-end; margin-top:8px; }
+
+/* 9) boutons: touch-friendly + pleine largeur sur mobile */
+.pipeline .btn{
+  appearance:none; border:none; border-radius:10px; padding:12px 16px;
+  background:var(--primary); color:var(--primary-contrast); cursor:pointer; font-weight:600;
+  min-height: 40px;
+}
+.pipeline .btn:disabled{ opacity:.6; cursor:not-allowed; }
+.pipeline .btn.ghost{ background:transparent; color:var(--text); border:1px solid var(--border); }
+.pipeline .btn.primary{ background:var(--primary); color:#fff; }
+@media (max-width:640px){
+  .pipeline .btn{ width:100%; }
+}
+
+/* 10) actions sticky: colonne sur mobile */
+.pipeline .sticky-actions{
+  position:sticky; bottom:0;
+  display:flex; justify-content:space-between; gap:12px; padding:12px 0;
+  background: linear-gradient(180deg, rgba(11,18,32,0), rgba(11,18,32,.9) 30%, rgba(11,18,32,1) 100%);
+  margin-top:auto; z-index:3;
+}
+.pipeline .sticky-actions .left,
+.pipeline .sticky-actions .right{
+  display:flex; gap:8px; align-items:center; flex-wrap:wrap;
+}
+@media (max-width:640px){
+  .pipeline .sticky-actions{ flex-direction:column; align-items:stretch; }
+  .pipeline .sticky-actions .left,
+  .pipeline .sticky-actions .right{ justify-content:stretch; }
+}
+
+/* 11) squelettes */
+.pipeline .skeleton{
+  height:200px;
+  background: linear-gradient(90deg,#0d1220,#131a2b,#0d1220);
+  border-radius:12px; animation:pulse 1.2s infinite ease-in-out;
+}
+@keyframes pulse{ 0%{opacity:.6;} 50%{opacity:1;} 100%{opacity:.6;} }
+
+/* 12) accessibilité: réduit les animations si demandé */
+@media (prefers-reduced-motion: reduce){
+  .pipeline .skeleton{ animation: none; }
+}
