@@ -675,9 +675,11 @@ export default function RepoAnalysisPage() {
   };
 
   
-  const goToNextPage = () => {
-    navigate(`/next-step/${repo?.repoId}`, { state: { repo } });
-  };
+  // replace your current version
+const goToNextPage = () => {
+  navigate("/docker/preview");
+};
+
 
  
   const onValidateGenerateCI = () => {
@@ -710,32 +712,31 @@ export default function RepoAnalysisPage() {
   };
 
   
-  const onConfirmProceed = async () => {
-        try {
-          setConfirmLoading(true);
-          const ok = await saveAnalysisToBackend();
-          if (!ok) {
-            // on ne bouge pas si la sauvegarde a échoué
-            setConfirmLoading(false);
-            return;
-          }
-    
-         // Marque comme confirmé côté localStorage
-         setRepoConfirmed(repo?.repoId, true);
-          setHasUnsavedChanges(false);
-          setConfirmedOnce(true);
-    
-          // ✅ Propager les données au contexte utilisé par Docker/CI
-          if (repo?.repoId) setRepoId(repo.repoId);
-          if (analysis)      setAppAnalysis(analysis); // { mode, analysis || services, ... }
-    
-          // Ferme la modal puis redirige vers la page Docker
-          setConfirmOpen(false);
-          navigate("/docker/preview");
-        } finally {
-          setConfirmLoading(false);
-       }
-      };
+ const onConfirmProceed = async () => {
+  try {
+    setConfirmLoading(true);
+    const ok = await saveAnalysisToBackend();
+    if (!ok) {
+      setConfirmLoading(false);
+      return;
+    }
+
+    // mark as confirmed and clear unsaved changes
+    setRepoConfirmed(repo?.repoId, true);
+    setHasUnsavedChanges(false);
+    setConfirmedOnce(true);
+
+    // (optional) propagate to context
+    if (repo?.repoId) setRepoId(repo.repoId);
+    if (analysis) setAppAnalysis(analysis);
+
+    // just close modal — NO navigate here
+    setConfirmOpen(false);
+  } finally {
+    setConfirmLoading(false);
+  }
+};
+
 
   const EditableField = ({ label, value, path }) => {
     const isEditing = editingField === path;
