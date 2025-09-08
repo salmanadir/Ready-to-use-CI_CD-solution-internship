@@ -13,8 +13,8 @@ import RepoAnalysisPage from './pages/RepoAnalysis/RepoAnalysisPage';
 import RepoSelectionPage from './pages/RepoSelection/RepoSelectionPage';
 
 // 👉 ajoute tes pages pipeline
-import DockerfilePreview from './page/DockerfilePreview';
-import CiPreview from './page/CiPreview';
+import DockerfilePreview from './pages/Dockerfile_Ci/DockerfilePreview';
+import CiPreview from './pages/Dockerfile_Ci/CiPreview';
 
 import "@fortawesome/fontawesome-free/css/all.min.css";
 import './App.css';

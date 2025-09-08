@@ -1,16 +1,16 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { useApp } from "../store/AppContext";
-import { previewCi, generateCi, setApiClient } from "../services/api";
-import { useAuth } from "../context/AuthContext";
-import StepHeader from "../components/StepHeader";
-import CodeViewer from "../components/CodeViewer";
-import StickyActions from "../components/StickyActions";
-import MetaCards from "../components/MetaCards";
-import CiServiceList from "../components/CiServiceList";
+import { useApp } from "../../store/AppContext";
+import { previewCi, generateCi, setApiClient } from "../../services/api";
+import { useAuth } from "../../context/AuthContext";
+import StepHeader from "../../components/StepHeader";
+import CodeViewer from "../../components/CodeViewer";
+import StickyActions from "../../components/StickyActions";
+import MetaCards from "../../components/MetaCards";
+import CiServiceList from "../../components/CiServiceList";
 
 // 🎨 styles scopés à ces pages
-import "../styles/pipeline.css";
+import "./styles/pipeline.css";
 
 function buildSingleTechStackInfo(analysis) {
   const src = analysis?.analysis || (analysis?.services && analysis.services[0]) || null;
