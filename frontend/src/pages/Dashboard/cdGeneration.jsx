@@ -3,12 +3,17 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 
 const CDGeneration = () => {
-  const { apiClient } = useAuth();
+  const { apiClient, isAuthenticated, user, token } = useAuth();
   const [repoId, setRepoId] = useState('');
   const [repos, setRepos] = useState([]);
   const [reposLoading, setReposLoading] = useState(true);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
+  const [composeStatus, setComposeStatus] = useState(null);
+  const [showComposePreview, setShowComposePreview] = useState(false);
+  const [originalAction, setOriginalAction] = useState(null); // 'preview' or 'push'
+
+
 
   // Fetch all user repositories on mount
   useEffect(() => {
@@ -38,6 +43,9 @@ const CDGeneration = () => {
     }
     setLoading(true);
     setResult(null);
+    setComposeStatus(null);
+    setOriginalAction('preview');
+    
     try {
       const response = await apiClient.post(`/api/cd-workflow/preview?repoId=${repoId}`);
       let data;
@@ -49,9 +57,152 @@ const CDGeneration = () => {
         data = response;
       }
       console.log('Preview response:', data);
-      setResult(data);
+      
+      // Check if Docker Compose is missing
+      if (data.missingCompose) {
+        setComposeStatus(data);
+        await checkComposePreview();
+      } else {
+        setResult(data);
+      }
     } catch (error) {
-      setResult(error?.response?.data?.message || 'Preview failed');
+      console.log('Error caught:', error);
+      
+      // Check different possible status locations
+      const status = error?.status || error?.response?.status;
+      const message = error?.payload?.message || error?.response?.data?.message || error?.message;
+      
+      console.log('Status code:', status);
+      console.log('Error message:', message);
+      
+      // Handle 428 status code (Precondition Required) for missing Docker Compose
+      if (status === 428) {
+        console.log('Docker Compose missing - 428 status detected, showing modal');
+        const composeData = {
+          success: false,
+          missingCompose: true,
+          message: 'Docker Compose is missing. Do you want to generate one?'
+        };
+        setComposeStatus(composeData);
+        setLoading(false); // Reset loading state so modal buttons work
+        // Automatically fetch the preview
+        setTimeout(() => checkComposePreview(), 100);
+        return; // Don't set error result
+      } else {
+        console.log('Not 428 status, setting error result');
+        setResult({ success: false, message: message || 'Preview failed' });
+      }
+    }
+    setLoading(false);
+  };
+
+  const checkComposePreview = async () => {
+    console.log('checkComposePreview called');
+    try {
+      const response = await apiClient.post(`/api/workflows/compose/prod/preview`, { repoId: repoId });
+      let data;
+      if (response && typeof response.json === 'function') {
+        data = await response.json();
+      } else if (response && response.data) {
+        data = response.data;
+      } else {
+        data = response;
+      }
+      console.log('Compose preview response:', data);
+      setComposeStatus(prev => ({ ...prev, composePreview: data }));
+    } catch (error) {
+      console.error('Failed to get compose preview:', error);
+      console.error('Preview error details:', error?.response?.data);
+      // Show the push button anyway, but with an error message
+      setComposeStatus(prev => ({ 
+        ...prev, 
+        error: error?.response?.data?.message || error.message,
+        // Allow push even if preview fails
+        composePreview: { 
+          hasCompose: false,
+          composePreview: 'Preview failed to load, but you can still generate the Docker Compose file.',
+          message: 'Preview generation failed'
+        }
+      }));
+    }
+  };
+
+  const handleGenerateCompose = async () => {
+    console.log('handleGenerateCompose started!');
+    console.log('repoId:', repoId);
+    console.log('originalAction:', originalAction);
+    console.log('Current URL before API call:', window.location.href);
+    console.log('Auth state before API call:', { isAuthenticated, user: user?.username, hasToken: !!token });
+    
+    setLoading(true);
+    try {
+      console.log('Making API call to:', `/api/workflows/compose/prod/apply`);
+      console.log('Request body:', { repoId });
+      const response = await apiClient.post(`/api/workflows/compose/prod/apply`, { repoId });
+      let data;
+      if (response && typeof response.json === 'function') {
+        data = await response.json();
+      } else if (response && response.data) {
+        data = response.data;
+      } else {
+        data = response;
+      }
+      
+      console.log('API response received:', data);
+      console.log('Current URL after API call:', window.location.href);
+      
+      if (data.success) {
+        console.log('Docker Compose generated successfully');
+        setComposeStatus(null);
+        // Show success message briefly
+        setResult({ 
+          success: true, 
+          message: 'Docker Compose generated successfully! Now generating CD workflow...' 
+        });
+        
+        // Wait a moment then automatically proceed with the original action
+        setTimeout(async () => {
+          try {
+            console.log('Proceeding with CD workflow generation...');
+            const endpoint = originalAction === 'push' ? '/api/cd-workflow/apply' : '/api/cd-workflow/preview';
+            console.log('CD workflow endpoint:', endpoint);
+            const cdResponse = await apiClient.post(`${endpoint}?repoId=${repoId}`);
+            let cdData;
+            if (cdResponse && typeof cdResponse.json === 'function') {
+              cdData = await cdResponse.json();
+            } else if (cdResponse && cdResponse.data) {
+              cdData = cdResponse.data;
+            } else {
+              cdData = cdResponse;
+            }
+            console.log('CD workflow response:', cdData);
+            // Modify the message to show both Docker Compose and CD workflow success
+            if (cdData.success) {
+              setResult({
+                ...cdData,
+                message: 'Docker Compose pushed successfully! CD workflow also generated and pushed to GitHub.'
+              });
+            } else {
+              setResult(cdData);
+            }
+          } catch (cdError) {
+            console.error('CD workflow generation failed:', cdError);
+            setResult({ 
+              success: false, 
+              message: 'Docker Compose generated, but failed to generate CD workflow: ' + (cdError?.response?.data?.message || cdError.message)
+            });
+          }
+        }, 1500);
+      } else {
+        setComposeStatus(null);
+        setResult({ success: false, message: data.message || 'Failed to generate Docker Compose' });
+      }
+    } catch (error) {
+      console.error('handleGenerateCompose error:', error);
+      console.log('Auth state after error:', { isAuthenticated, user: user?.username, hasToken: !!token });
+      console.log('Error status:', error?.status);
+      setComposeStatus(null);
+      setResult({ success: false, message: error?.response?.data?.message || 'Failed to generate Docker Compose' });
     }
     setLoading(false);
   };
@@ -63,6 +214,9 @@ const CDGeneration = () => {
     }
     setLoading(true);
     setResult(null);
+    setComposeStatus(null);
+    setOriginalAction('push');
+    
     try {
       const response = await apiClient.post(`/api/cd-workflow/apply?repoId=${repoId}`);
       let data;
@@ -74,9 +228,41 @@ const CDGeneration = () => {
         data = response;
       }
       console.log('Push response:', data);
-      setResult(data);
+      
+      // Check if Docker Compose is missing
+      if (data.missingCompose) {
+        setComposeStatus(data);
+        await checkComposePreview();
+      } else {
+        setResult(data);
+      }
     } catch (error) {
-      setResult(error?.response?.data?.message || 'Push failed');
+      console.log('Push Error caught:', error);
+      
+      // Check different possible status locations
+      const status = error?.status || error?.response?.status;
+      const message = error?.payload?.message || error?.response?.data?.message || error?.message;
+      
+      console.log('Push Status code:', status);
+      console.log('Push Error message:', message);
+      
+      // Handle 428 status code (Precondition Required) for missing Docker Compose
+      if (status === 428) {
+        console.log('Docker Compose missing - 428 status detected, showing modal');
+        const composeData = {
+          success: false,
+          missingCompose: true,
+          message: 'Docker Compose is missing. Do you want to generate one?'
+        };
+        setComposeStatus(composeData);
+        setLoading(false); // Reset loading state so modal buttons work
+        // Automatically fetch the preview
+        setTimeout(() => checkComposePreview(), 100);
+        return; // Don't set error result
+      } else {
+        console.log('Not 428 status, setting error result');
+        setResult({ success: false, message: message || 'Push failed' });
+      }
     }
     setLoading(false);
   };
@@ -147,6 +333,121 @@ const CDGeneration = () => {
           </button>
         </div>
         {loading && <p className="text-yellow-400 font-semibold mb-4">Loading...</p>}
+        
+        {/* Docker Compose Missing Modal */}
+        {composeStatus && composeStatus.missingCompose && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+            <div className="relative w-full max-w-4xl mx-auto bg-gray-900 rounded-xl shadow-2xl border border-gray-700 p-8">
+              <button
+                className="absolute top-4 right-4 text-gray-400 hover:text-gray-200 text-2xl font-bold focus:outline-none"
+                onClick={() => setComposeStatus(null)}
+                aria-label="Close"
+              >
+                &times;
+              </button>
+              
+              <div className="text-center mb-6">
+                <div className="w-16 h-16 bg-yellow-600/80 rounded-lg flex items-center justify-center mx-auto mb-4">
+                  <span className="text-3xl">🐳</span>
+                </div>
+                <h2 className="text-2xl font-bold text-white mb-2">Docker Compose Missing</h2>
+                <p className="text-gray-300 mb-4">
+                  Docker Compose is required for CD workflow generation.<br/>
+                  Would you like to generate one?
+                </p>
+              </div>
+
+              {/* Loading indicator while fetching preview */}
+              {!composeStatus.composePreview && !composeStatus.error && (
+                <div className="mb-6 text-center">
+                  <div className="inline-flex items-center px-4 py-2 bg-blue-600/20 rounded-lg">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-400 mr-3"></div>
+                    <span className="text-blue-300">Loading Docker Compose preview...</span>
+                  </div>
+                  {/* Fallback button after 5 seconds */}
+                  <div className="mt-4">
+                    <button
+                      className="text-blue-400 hover:text-blue-300 text-sm underline"
+                      onClick={() => setComposeStatus(prev => ({ 
+                        ...prev, 
+                        composePreview: { 
+                          hasCompose: false,
+                          composePreview: 'Preview skipped',
+                          message: 'Generate without preview'
+                        }
+                      }))}
+                    >
+                      Skip preview and generate Docker Compose
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Preview section - only show when ready */}
+              {composeStatus.composePreview && (
+                <div className="mb-6">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-semibold text-white">Preview Docker Compose</h3>
+                    <button
+                      className="text-blue-400 hover:text-blue-300 text-sm"
+                      onClick={() => setShowComposePreview(!showComposePreview)}
+                    >
+                      {showComposePreview ? 'Hide Preview' : 'Show Preview'}
+                    </button>
+                  </div>
+                  
+                  {showComposePreview && (
+                    <pre className="bg-gray-800 rounded-lg p-4 text-sm text-green-200 whitespace-pre-wrap max-h-[40vh] overflow-auto border border-gray-700 shadow-inner">
+                      <code>{composeStatus.composePreview.composePreview}</code>
+                    </pre>
+                  )}
+                </div>
+              )}
+
+              {/* Error loading preview */}
+              {composeStatus.error && (
+                <div className="mb-6 text-center">
+                  <div className="px-4 py-2 bg-red-600/20 rounded-lg border border-red-700">
+                    <span className="text-red-300">Failed to load preview: {composeStatus.error}</span>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex gap-4 justify-center">
+                {/* Only show Push button when preview is ready */}
+                {composeStatus.composePreview && (
+                  <button
+                    className="bg-gradient-to-r from-green-500 to-green-600 text-white px-6 py-3 rounded-lg font-semibold shadow hover:from-green-600 hover:to-green-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                    onClick={(e) => {
+                      console.log('Push Docker Compose button clicked!');
+                      console.log('Event:', e);
+                      console.log('Loading state:', loading);
+                      console.log('Current URL:', window.location.href);
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if (!loading) {
+                        console.log('Calling handleGenerateCompose...');
+                        handleGenerateCompose();
+                      } else {
+                        console.log('Button is disabled due to loading state');
+                      }
+                    }}
+                    disabled={loading}
+                  >
+                    {loading ? 'Generating...' : 'Push Docker Compose to GitHub'}
+                  </button>
+                )}
+                <button
+                  className="bg-gray-600 text-white px-6 py-3 rounded-lg font-semibold shadow hover:bg-gray-700 transition-all"
+                  onClick={() => setComposeStatus(null)}
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* YAML Modal Preview */}
         {result && result.workflowYaml && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
