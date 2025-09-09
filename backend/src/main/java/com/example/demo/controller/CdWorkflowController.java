@@ -1,40 +1,7 @@
 package com.example.demo.controller;
 
 import com.example.demo.model.Repo;
-import com            if (!hasCompose) {
-                return ResponseEntity.status(HttpStatus.PRECONDITION_REQUIRED).body(Map.of(
-                    "success", false,
-                    "missingCompose", true,
-                    "message", "Docker Compose file is required for CD workflow generation. Please generate one first.",
-                    "hintPreviewCompose", "/api/workflows/compose/prod/preview",
-                    "hintApplyCompose", "/api/workflows/compose/prod/apply"
-                ));
-            }
-
-            // Check if CD workflow already exists (for preview, we'll show a warning but still show the preview)
-            boolean hasCdWorkflow = false;
-            try {
-                gitHubService.getFileContent(repo.getUrl(), token, ".github/workflows/cd-deploy.yml");
-                hasCdWorkflow = true;
-            } catch (Exception ignore) {
-                // File doesn't exist
-            }
-
-            String workflowYaml = cdWorkflowGenerationService.generateCdWorkflow("${{ secrets.VM_HOST }}", "${{ secrets.VM_USER }}");
-            
-            if (hasCdWorkflow) {
-                return ResponseEntity.ok(Map.of(
-                    "success", true,
-                    "workflowYaml", workflowYaml,
-                    "workflowExists", true,
-                    "warning", "CD workflow already exists. Pushing will overwrite the existing workflow."
-                ));
-            }
-
-            return ResponseEntity.ok(Map.of(
-                    "success", true,
-                    "workflowYaml", workflowYaml
-            ));epository.RepoRepository;
+import com.example.demo.repository.RepoRepository;
 import com.example.demo.service.CdWorkflowGenerationService;
 import com.example.demo.repository.CiWorkflowRepository;
 import com.example.demo.service.GitHubService;
@@ -47,7 +14,6 @@ import org.springframework.web.bind.annotation.*;
 
 import java.io.IOException;
 import java.util.Map;
-
 @RestController
 @RequestMapping("/api/cd-workflow")
 @CrossOrigin(origins = "*")
@@ -187,24 +153,21 @@ public class CdWorkflowController {
                         "workflowExists", true,
                         "message", "CD workflow already exists for this repository. Do you want to overwrite it?"
                     ));
-                } catch (RuntimeException e) {
-                    if (e.getMessage() != null && e.getMessage().contains("token is invalid or expired")) {
-                        // Token has permission issues - inform user but allow them to continue
-                        System.out.println("⚠️  Cannot check for existing CD workflow due to token permissions. Continuing with workflow generation...");
-                        // Don't return error, just continue - user might need to re-authenticate after push
-                    } else if (e.getMessage() != null && e.getMessage().contains("404")) {
-                        // File doesn't exist, continue with creation
-                        System.out.println("✅ No existing CD workflow found. Continuing with creation...");
-                    } else {
-                        System.out.println("⚠️  Unexpected error checking for existing workflow: " + e.getMessage());
-                        // Continue anyway
-                    }
                 } catch (org.springframework.web.client.HttpClientErrorException.Forbidden e) {
                     // 403 Forbidden - can't check due to token issues, but continue
                     System.out.println("⚠️  403 Forbidden when checking existing workflow. Token may have expired. Continuing...");
                 } catch (org.springframework.web.client.HttpClientErrorException.NotFound e) {
                     // File doesn't exist, continue with creation
                     System.out.println("✅ No existing CD workflow found (404). Continuing with creation...");
+                } catch (RuntimeException e) {
+                    if (e.getMessage() != null && e.getMessage().contains("token is invalid or expired")) {
+                        // Token has permission issues - inform user but allow them to continue
+                        System.out.println("⚠️  Cannot check for existing CD workflow due to token permissions. Continuing with workflow generation...");
+                        // Don't return error, just continue - user might need to re-authenticate after push
+                    } else {
+                        System.out.println("⚠️  Unexpected error checking for existing workflow: " + e.getMessage());
+                        // Continue anyway
+                    }
                 } catch (Exception e) {
                     // Other errors, continue
                     System.out.println("⚠️  General error checking existing workflow: " + e.getMessage() + ". Continuing...");

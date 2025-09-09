@@ -1,7 +1,4 @@
-version: "3.8"
-
 services:
-
   frontend:
     build:
       context: ./frontend
@@ -16,7 +13,6 @@ services:
       - /app/node_modules
     networks:
       - app-network
-  
 
   backend:
     build:
@@ -31,7 +27,6 @@ services:
       SPRING_DATASOURCE_PASSWORD: postgres
     networks:
       - app-network
-  
 
   postgres:
     image: postgres:15
@@ -45,7 +40,7 @@ services:
       - postgres_data:/var/lib/postgresql/data
     networks:
       - app-network
-  
+
 networks:
   app-network:
     driver: bridge
