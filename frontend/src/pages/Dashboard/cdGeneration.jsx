@@ -62,6 +62,12 @@ const CDGeneration = () => {
       if (data.missingCompose) {
         setComposeStatus(data);
         await checkComposePreview();
+      } else if (data.workflowExists && data.warning) {
+        // Show preview with warning about existing workflow
+        setResult({
+          ...data,
+          showWarning: true
+        });
       } else {
         setResult(data);
       }
@@ -88,8 +94,15 @@ const CDGeneration = () => {
         // Automatically fetch the preview
         setTimeout(() => checkComposePreview(), 100);
         return; // Don't set error result
+      } else if (status === 403) {
+        // Handle 403 Forbidden - GitHub token permissions issue
+        console.log('GitHub token permission issue - 403 status detected');
+        setResult({ 
+          success: false, 
+          message: 'Access denied. Your GitHub token may have expired or lacks sufficient permissions. Please try logging out and logging back in.' 
+        });
       } else {
-        console.log('Not 428 status, setting error result');
+        console.log('Not 428/403 status, setting error result');
         setResult({ success: false, message: message || 'Preview failed' });
       }
     }
@@ -259,8 +272,23 @@ const CDGeneration = () => {
         // Automatically fetch the preview
         setTimeout(() => checkComposePreview(), 100);
         return; // Don't set error result
+      } else if (status === 409) {
+        // Handle 409 Conflict for existing CD workflow
+        console.log('CD workflow already exists - 409 status detected');
+        setResult({ 
+          success: false, 
+          workflowExists: true,
+          message: message || 'CD workflow already exists for this repository. Would you like to overwrite it?' 
+        });
+      } else if (status === 403) {
+        // Handle 403 Forbidden - GitHub token permissions issue
+        console.log('GitHub token permission issue - 403 status detected');
+        setResult({ 
+          success: false, 
+          message: 'Access denied. Your GitHub token may have expired or lacks sufficient permissions. Please try logging out and logging back in.' 
+        });
       } else {
-        console.log('Not 428 status, setting error result');
+        console.log('Not 428/409/403 status, setting error result');
         setResult({ success: false, message: message || 'Push failed' });
       }
     }
@@ -434,7 +462,7 @@ const CDGeneration = () => {
                     }}
                     disabled={loading}
                   >
-                    {loading ? 'Generating...' : 'Push Docker Compose to GitHub'}
+                    {loading ? 'Pushing...' : 'Push Docker Compose to GitHub'}
                   </button>
                 )}
                 <button
@@ -462,6 +490,11 @@ const CDGeneration = () => {
               <div className="text-center mb-6">
                 <div className="text-lg font-semibold tracking-wide text-white mb-2">Preview YAML</div>
                 <div className="text-gray-300 text-sm mb-2">This is the deployment workflow that will be committed to your repository.</div>
+                {result.showWarning && result.warning && (
+                  <div className="bg-yellow-900/80 border border-yellow-700 text-yellow-200 px-4 py-2 rounded-lg text-sm mt-4">
+                    ⚠️ {result.warning}
+                  </div>
+                )}
               </div>
               <pre className="w-full bg-gray-800 rounded-lg p-5 text-sm text-green-200 whitespace-pre-wrap max-h-[60vh] overflow-auto border border-gray-700 shadow-inner">
                 <code>{result.workflowYaml}</code>
@@ -474,10 +507,49 @@ const CDGeneration = () => {
           <div className="mt-4 flex justify-center">
             {result.success ? (
               <div className="bg-green-900/80 border border-green-700 text-green-200 px-6 py-4 rounded-xl font-semibold text-lg shadow">
-                <span>CD workflow was successfully pushed!</span>
+                <span>{result.message || 'CD workflow was successfully pushed!'}</span>
                 {result.commitHash && (
                   <div className="text-green-300 text-sm mt-2">Commit Hash: <span className="font-mono">{result.commitHash}</span></div>
                 )}
+              </div>
+            ) : result.workflowExists ? (
+              <div className="bg-yellow-900/80 border border-yellow-700 text-yellow-200 px-6 py-4 rounded-xl font-semibold text-lg shadow">
+                <div className="mb-4">
+                  <span>{result.message}</span>
+                </div>
+                <div className="flex gap-4 justify-center">
+                  <button
+                    className="bg-gradient-to-r from-green-500 to-green-600 text-white px-4 py-2 rounded-lg font-semibold shadow hover:from-green-600 hover:to-green-700 transition-all"
+                    onClick={async () => {
+                      setLoading(true);
+                      try {
+                        // Force overwrite by calling apply endpoint directly
+                        const response = await apiClient.post(`/api/cd-workflow/apply?repoId=${repoId}&force=true`);
+                        let data;
+                        if (response && typeof response.json === 'function') {
+                          data = await response.json();
+                        } else if (response && response.data) {
+                          data = response.data;
+                        } else {
+                          data = response;
+                        }
+                        setResult(data);
+                      } catch (error) {
+                        setResult({ success: false, message: 'Failed to overwrite workflow' });
+                      }
+                      setLoading(false);
+                    }}
+                    disabled={loading}
+                  >
+                    Yes, Overwrite
+                  </button>
+                  <button
+                    className="bg-gray-600 text-white px-4 py-2 rounded-lg font-semibold shadow hover:bg-gray-700 transition-all"
+                    onClick={() => setResult(null)}
+                  >
+                    Cancel
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="bg-red-900/80 border border-red-700 text-red-200 px-6 py-4 rounded-xl font-semibold text-lg shadow">

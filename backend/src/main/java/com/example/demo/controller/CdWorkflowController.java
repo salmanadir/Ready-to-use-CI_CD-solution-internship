@@ -1,7 +1,40 @@
 package com.example.demo.controller;
 
 import com.example.demo.model.Repo;
-import com.example.demo.repository.RepoRepository;
+import com            if (!hasCompose) {
+                return ResponseEntity.status(HttpStatus.PRECONDITION_REQUIRED).body(Map.of(
+                    "success", false,
+                    "missingCompose", true,
+                    "message", "Docker Compose file is required for CD workflow generation. Please generate one first.",
+                    "hintPreviewCompose", "/api/workflows/compose/prod/preview",
+                    "hintApplyCompose", "/api/workflows/compose/prod/apply"
+                ));
+            }
+
+            // Check if CD workflow already exists (for preview, we'll show a warning but still show the preview)
+            boolean hasCdWorkflow = false;
+            try {
+                gitHubService.getFileContent(repo.getUrl(), token, ".github/workflows/cd-deploy.yml");
+                hasCdWorkflow = true;
+            } catch (Exception ignore) {
+                // File doesn't exist
+            }
+
+            String workflowYaml = cdWorkflowGenerationService.generateCdWorkflow("${{ secrets.VM_HOST }}", "${{ secrets.VM_USER }}");
+            
+            if (hasCdWorkflow) {
+                return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "workflowYaml", workflowYaml,
+                    "workflowExists", true,
+                    "warning", "CD workflow already exists. Pushing will overwrite the existing workflow."
+                ));
+            }
+
+            return ResponseEntity.ok(Map.of(
+                    "success", true,
+                    "workflowYaml", workflowYaml
+            ));epository.RepoRepository;
 import com.example.demo.service.CdWorkflowGenerationService;
 import com.example.demo.repository.CiWorkflowRepository;
 import com.example.demo.service.GitHubService;
@@ -69,6 +102,7 @@ public class CdWorkflowController {
             // Check if Docker Compose exists
             // Try to find common Docker Compose file names
             boolean hasCompose = false;
+            boolean tokenHasPermissions = true;
             try {
                 // Check for common compose file names
                 String[] composeFiles = {"docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"};
@@ -77,12 +111,25 @@ public class CdWorkflowController {
                         gitHubService.getFileContent(repo.getUrl(), token, fileName);
                         hasCompose = true;
                         break;
-                    } catch (Exception ignore) {
+                    } catch (RuntimeException e) {
+                        if (e.getMessage() != null && e.getMessage().contains("token is invalid or expired")) {
+                            tokenHasPermissions = false;
+                            System.err.println("⚠️  Token permission issue detected, skipping compose check: " + e.getMessage());
+                            break; // Exit the loop if token is invalid
+                        }
                         // File doesn't exist, try next
                     }
                 }
             } catch (Exception e) {
-                // Error checking files
+                System.err.println("⚠️  Error checking Docker Compose files: " + e.getMessage());
+                tokenHasPermissions = false;
+            }
+
+            // If token doesn't work, we can't verify Docker Compose exists  
+            // But we'll let the user proceed and inform them about the token issue
+            if (!tokenHasPermissions) {
+                System.out.println("⚠️  Cannot verify Docker Compose due to token issues. Proceeding with workflow generation...");
+                hasCompose = true; // Assume it exists to let workflow generation proceed
             }
 
             if (!hasCompose) {
@@ -107,7 +154,9 @@ public class CdWorkflowController {
 
     // APPLY: Generate and push the workflow YAML to the user's repo
     @PostMapping("/apply")
-    public ResponseEntity<?> applyCdWorkflow(@RequestParam Long repoId, Authentication authentication) {
+    public ResponseEntity<?> applyCdWorkflow(@RequestParam Long repoId, 
+                                           @RequestParam(defaultValue = "false") boolean force,
+                                           Authentication authentication) {
         try {
             Repo repo = requireAuthAndRepo(authentication, repoId);
             if (repo == null) return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of(
@@ -128,8 +177,43 @@ public class CdWorkflowController {
             }
             gitHubService.setCurrentToken(token);
 
+            // Check if CD workflow already exists FIRST (only if not forcing)
+            if (!force) {
+                try {
+                    gitHubService.getFileContent(repo.getUrl(), token, ".github/workflows/cd-deploy.yml");
+                    // If we reach here, the file exists
+                    return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
+                        "success", false,
+                        "workflowExists", true,
+                        "message", "CD workflow already exists for this repository. Do you want to overwrite it?"
+                    ));
+                } catch (RuntimeException e) {
+                    if (e.getMessage() != null && e.getMessage().contains("token is invalid or expired")) {
+                        // Token has permission issues - inform user but allow them to continue
+                        System.out.println("⚠️  Cannot check for existing CD workflow due to token permissions. Continuing with workflow generation...");
+                        // Don't return error, just continue - user might need to re-authenticate after push
+                    } else if (e.getMessage() != null && e.getMessage().contains("404")) {
+                        // File doesn't exist, continue with creation
+                        System.out.println("✅ No existing CD workflow found. Continuing with creation...");
+                    } else {
+                        System.out.println("⚠️  Unexpected error checking for existing workflow: " + e.getMessage());
+                        // Continue anyway
+                    }
+                } catch (org.springframework.web.client.HttpClientErrorException.Forbidden e) {
+                    // 403 Forbidden - can't check due to token issues, but continue
+                    System.out.println("⚠️  403 Forbidden when checking existing workflow. Token may have expired. Continuing...");
+                } catch (org.springframework.web.client.HttpClientErrorException.NotFound e) {
+                    // File doesn't exist, continue with creation
+                    System.out.println("✅ No existing CD workflow found (404). Continuing with creation...");
+                } catch (Exception e) {
+                    // Other errors, continue
+                    System.out.println("⚠️  General error checking existing workflow: " + e.getMessage() + ". Continuing...");
+                }
+            }
+
             // Check if Docker Compose exists
             boolean hasCompose = false;
+            boolean tokenWorksForFiles = true;
             try {
                 // Check for common compose file names
                 String[] composeFiles = {"docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"};
@@ -138,12 +222,27 @@ public class CdWorkflowController {
                         gitHubService.getFileContent(repo.getUrl(), token, fileName);
                         hasCompose = true;
                         break;
+                    } catch (RuntimeException e) {
+                        if (e.getMessage() != null && e.getMessage().contains("token is invalid or expired")) {
+                            tokenWorksForFiles = false;
+                            System.err.println("⚠️  Token permission issue during compose check: " + e.getMessage());
+                            break; // Exit the loop if token is invalid
+                        }
+                        // File doesn't exist, try next
                     } catch (Exception ignore) {
                         // File doesn't exist, try next
                     }
                 }
             } catch (Exception e) {
-                // Error checking files
+                System.err.println("⚠️  Error checking Docker Compose files: " + e.getMessage());
+                tokenWorksForFiles = false;
+            }
+
+            // If token doesn't work, we can't verify Docker Compose exists
+            // But we'll let the user proceed and see if the push fails with better error message
+            if (!tokenWorksForFiles) {
+                System.out.println("⚠️  Cannot verify Docker Compose due to token issues. User will need to re-authenticate.");
+                hasCompose = true; // Assume it exists to let workflow generation proceed
             }
 
             if (!hasCompose) {
