@@ -146,7 +146,7 @@ public class CdWorkflowController {
             gitHubService.setCurrentToken(token);
 
             // Check if CD workflow already exists FIRST (only if not forcing)
-            System.out.println("🔧 Apply CD Workflow - Force mode: " + force + ", Repo: " + repo.getName());
+            System.out.println("🔧 Apply CD Workflow - Force mode: " + force + ", Repo: " + repo.getFullName());
             if (!force) {
                 try {
                     gitHubService.getFileContent(repo.getUrl(), token, ".github/workflows/cd-deploy.yml");
