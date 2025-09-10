@@ -94,6 +94,23 @@ const CDGeneration = () => {
         // Automatically fetch the preview
         setTimeout(() => checkComposePreview(), 100);
         return; // Don't set error result
+      } else if (status === 409) {
+        // Handle 409 Conflict - could be existing CD workflow OR missing CI workflow
+        console.log('Preview Conflict detected - 409 status, message:', message);
+        
+        // Check if it's about missing CI workflow
+        if (message && message.toLowerCase().includes('ci workflow')) {
+          console.log('Missing CI workflow detected in preview');
+          setResult({ 
+            success: false, 
+            missingCiWorkflow: true,
+            message: message || 'You must generate a CI workflow for this repository before generating a CD workflow.'
+          });
+        } else {
+          // It's about existing CD workflow (though this shouldn't happen in preview)
+          console.log('CD workflow conflict in preview - unexpected');
+          setResult({ success: false, message: message || 'Preview failed due to conflict' });
+        }
       } else if (status === 403) {
         // Handle 403 Forbidden - GitHub token permissions issue
         console.log('GitHub token permission issue - 403 status detected');
@@ -102,7 +119,7 @@ const CDGeneration = () => {
           message: 'Access denied. Your GitHub token may have expired or lacks sufficient permissions. Please try logging out and logging back in.' 
         });
       } else {
-        console.log('Not 428/403 status, setting error result');
+        console.log('Not 428/409/403 status, setting error result');
         setResult({ success: false, message: message || 'Preview failed' });
       }
     }
@@ -273,13 +290,26 @@ const CDGeneration = () => {
         setTimeout(() => checkComposePreview(), 100);
         return; // Don't set error result
       } else if (status === 409) {
-        // Handle 409 Conflict for existing CD workflow
-        console.log('CD workflow already exists - 409 status detected');
-        setResult({ 
-          success: false, 
-          workflowExists: true,
-          message: message || 'CD workflow already exists for this repository. Would you like to overwrite it?' 
-        });
+        // Handle 409 Conflict - could be existing CD workflow OR missing CI workflow
+        console.log('Conflict detected - 409 status, message:', message);
+        
+        // Check if it's about missing CI workflow
+        if (message && message.toLowerCase().includes('ci workflow')) {
+          console.log('Missing CI workflow detected');
+          setResult({ 
+            success: false, 
+            missingCiWorkflow: true,
+            message: message || 'You must generate a CI workflow for this repository before generating a CD workflow.'
+          });
+        } else {
+          // It's about existing CD workflow
+          console.log('CD workflow already exists - 409 status detected');
+          setResult({ 
+            success: false, 
+            workflowExists: true,
+            message: message || 'CD workflow already exists for this repository. Would you like to overwrite it?' 
+          });
+        }
       } else if (status === 403) {
         // Handle 403 Forbidden - GitHub token permissions issue
         console.log('GitHub token permission issue - 403 status detected');
@@ -524,24 +554,78 @@ const CDGeneration = () => {
                       setLoading(true);
                       try {
                         // Force overwrite by calling apply endpoint directly
-                        const response = await apiClient.post(`/api/cd-workflow/apply?repoId=${repoId}&force=true`);
-                        let data;
-                        if (response && typeof response.json === 'function') {
-                          data = await response.json();
-                        } else if (response && response.data) {
-                          data = response.data;
-                        } else {
-                          data = response;
-                        }
-                        setResult(data);
+                        const url = `/api/cd-workflow/apply?repoId=${repoId}&force=true`;
+                        console.log('🚀 Calling overwrite API:', url);
+                        console.log('🚀 RepoId:', repoId);
+                        console.log('🚀 Force parameter: true');
+                        const response = await apiClient.post(url);
+                        console.log('🚀 Overwrite API response:', response);
+                        setResult(response);
                       } catch (error) {
-                        setResult({ success: false, message: 'Failed to overwrite workflow' });
+                        console.error('Overwrite error:', error);
+                        console.error('Error status:', error?.status || error?.response?.status);
+                        console.error('Error payload:', error?.payload);
+                        console.error('Error response data:', error?.response?.data);
+                        
+                        // Extract the actual error message from the backend response
+                        const status = error?.status || error?.response?.status;
+                        const message = error?.payload?.message || 
+                                       error?.response?.data?.message || 
+                                       error?.message;
+                        
+                        // Handle different error cases
+                        let errorMessage;
+                        if (status === 403) {
+                          errorMessage = 'Access denied. Your GitHub token may have expired or lacks sufficient permissions. Please try logging out and logging back in.';
+                        } else if (status === 409 && message && message.toLowerCase().includes('ci workflow')) {
+                          // Still missing CI workflow even in force mode
+                          setResult({ 
+                            success: false, 
+                            missingCiWorkflow: true,
+                            message: message
+                          });
+                          setLoading(false);
+                          return;
+                        } else {
+                          errorMessage = message || 'Failed to overwrite workflow. Please check your GitHub token permissions and try again.';
+                        }
+                        
+                        setResult({ 
+                          success: false, 
+                          message: errorMessage
+                        });
                       }
                       setLoading(false);
                     }}
                     disabled={loading}
                   >
                     Yes, Overwrite
+                  </button>
+                  <button
+                    className="bg-gray-600 text-white px-4 py-2 rounded-lg font-semibold shadow hover:bg-gray-700 transition-all"
+                    onClick={() => setResult(null)}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              </div>
+            ) : result.missingCiWorkflow ? (
+              <div className="bg-orange-900/80 border border-orange-700 text-orange-200 px-6 py-4 rounded-xl font-semibold text-lg shadow">
+                <div className="mb-4 text-center">
+                  <div className="w-12 h-12 bg-orange-600/80 rounded-lg flex items-center justify-center mx-auto mb-3">
+                    <span className="text-2xl">⚡</span>
+                  </div>
+                  <span>{result.message}</span>
+                </div>
+                <div className="flex gap-4 justify-center">
+                  <button
+                    className="bg-gradient-to-r from-blue-500 to-blue-600 text-white px-4 py-2 rounded-lg font-semibold shadow hover:from-blue-600 hover:to-blue-700 transition-all"
+                    onClick={() => {
+                      // Redirect to CI generation page
+                      window.location.href = '/dashboard';
+                    }}
+                  >
+                    Generate CI Workflow
                   </button>
                   <button
                     className="bg-gray-600 text-white px-4 py-2 rounded-lg font-semibold shadow hover:bg-gray-700 transition-all"

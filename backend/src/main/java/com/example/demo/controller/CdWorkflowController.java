@@ -129,12 +129,14 @@ public class CdWorkflowController {
                     "success", false, "message", "Authentication required or repo not found / not owned"
             ));
             
-            // Check if CI workflow exists for this repo
-            if (ciWorkflowRepository.findByRepo(repo).isEmpty()) {
+            // Check if CI workflow exists for this repo (only if not forcing)
+            if (!force && ciWorkflowRepository.findByRepo(repo).isEmpty()) {
                 return ResponseEntity.status(HttpStatus.CONFLICT).body(Map.of(
                     "success", false,
                     "message", "You must generate a CI workflow for this repository before generating a CD workflow."
                 ));
+            } else if (force && ciWorkflowRepository.findByRepo(repo).isEmpty()) {
+                System.out.println("⚠️  Force mode: Proceeding without CI workflow prerequisite check");
             }
 
             String token = repo.getUser().getToken();
@@ -144,6 +146,7 @@ public class CdWorkflowController {
             gitHubService.setCurrentToken(token);
 
             // Check if CD workflow already exists FIRST (only if not forcing)
+            System.out.println("🔧 Apply CD Workflow - Force mode: " + force + ", Repo: " + repo.getName());
             if (!force) {
                 try {
                     gitHubService.getFileContent(repo.getUrl(), token, ".github/workflows/cd-deploy.yml");
@@ -172,6 +175,8 @@ public class CdWorkflowController {
                     // Other errors, continue
                     System.out.println("⚠️  General error checking existing workflow: " + e.getMessage() + ". Continuing...");
                 }
+            } else {
+                System.out.println("✅ Force mode enabled - Skipping existing workflow check");
             }
 
             // Check if Docker Compose exists
@@ -208,7 +213,7 @@ public class CdWorkflowController {
                 hasCompose = true; // Assume it exists to let workflow generation proceed
             }
 
-            if (!hasCompose) {
+            if (!hasCompose && !force) {
                 return ResponseEntity.status(HttpStatus.PRECONDITION_REQUIRED).body(Map.of(
                     "success", false,
                     "missingCompose", true,
@@ -216,7 +221,11 @@ public class CdWorkflowController {
                     "hintPreviewCompose", "/api/workflows/compose/prod/preview",
                     "hintApplyCompose", "/api/workflows/compose/prod/apply"
                 ));
+            } else if (!hasCompose && force) {
+                System.out.println("⚠️  Force mode: Proceeding without Docker Compose file verification");
             }
+
+            System.out.println("✅ Proceeding to generate CD workflow...");
 
             String workflowYaml = cdWorkflowGenerationService.generateCdWorkflow("${{ secrets.VM_HOST }}", "${{ secrets.VM_USER }}");
             GitHubService.PushResult pr = gitHubService.pushWorkflowToGitHub(
