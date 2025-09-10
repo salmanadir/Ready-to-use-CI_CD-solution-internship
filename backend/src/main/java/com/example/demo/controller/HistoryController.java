@@ -89,112 +89,151 @@ public class HistoryController {
         }
     }
     
-    // ✅ Fixed method using only existing repository methods
-    private Map<String, Object> createRepoHistoryItem(Repo repo, Long userId) {
-        Map<String, Object> repoEvent = new HashMap<>();
-        
-        String repoName = getCleanRepoName(repo);
-        
-        repoEvent.put("id", "repo-" + repo.getRepoId());
-        repoEvent.put("repoName", repoName);
-        repoEvent.put("type", "repository");
-        repoEvent.put("status", "active");
-        
-        List<Map<String, Object>> operations = new ArrayList<>();
-        
-        // Handle repository creation timestamp
-        LocalDateTime repoCreatedAt = repo.getCreatedAt() != null ? 
-            repo.getCreatedAt() : LocalDateTime.now().minusDays(1);
-        LocalDateTime lastActivity = repoCreatedAt;
-        
-        // ✅ ALWAYS add repository connection
-        Map<String, Object> connectionOp = new HashMap<>();
-        connectionOp.put("type", "connection");
-        connectionOp.put("action", "Repository Connected");
-        connectionOp.put("timestamp", repoCreatedAt);
-        connectionOp.put("status", "success");
-        operations.add(connectionOp);
-        
-        // ✅ Add CI workflows if they exist
-        if (repo.getCiWorkflows() != null && !repo.getCiWorkflows().isEmpty()) {
-            for (CiWorkflow ci : repo.getCiWorkflows()) {
-                if (ci.getContent() != null && !ci.getContent().trim().isEmpty()) {
-                    LocalDateTime ciTimestamp = ci.getCreatedAt() != null ? 
-                        ci.getCreatedAt() : repoCreatedAt.plusMinutes(30);
-                    
-                    Map<String, Object> ciOp = new HashMap<>();
-                    ciOp.put("type", "ci");
-                    ciOp.put("action", "CI Workflow Generated");
-                    ciOp.put("timestamp", ciTimestamp);
-                    ciOp.put("status", getCiStatus(ci));
-                    ciOp.put("workflowContent", ci.getContent());
-                    operations.add(ciOp);
-                    
-                    if (ciTimestamp.isAfter(lastActivity)) {
-                        lastActivity = ciTimestamp;
+    // In createRepoHistoryItem method, replace the CD workflow section with this:
+private Map<String, Object> createRepoHistoryItem(Repo repo, Long userId) {
+    Map<String, Object> repoEvent = new HashMap<>();
+    
+    String repoName = getCleanRepoName(repo);
+    
+    repoEvent.put("id", "repo-" + repo.getRepoId());
+    repoEvent.put("repoName", repoName);
+    repoEvent.put("type", "repository");
+    repoEvent.put("status", "active");
+    
+    List<Map<String, Object>> operations = new ArrayList<>();
+    
+    // Handle repository creation timestamp
+    LocalDateTime repoCreatedAt = repo.getCreatedAt() != null ? 
+        repo.getCreatedAt() : LocalDateTime.now().minusDays(1);
+    LocalDateTime lastActivity = repoCreatedAt;
+    
+    // ✅ ALWAYS add repository connection
+    Map<String, Object> connectionOp = new HashMap<>();
+    connectionOp.put("type", "connection");
+    connectionOp.put("action", "Repository Connected");
+    connectionOp.put("timestamp", repoCreatedAt);
+    connectionOp.put("status", "success");
+    operations.add(connectionOp);
+    
+    // ✅ Add CI workflows if they exist
+    if (repo.getCiWorkflows() != null && !repo.getCiWorkflows().isEmpty()) {
+        for (CiWorkflow ci : repo.getCiWorkflows()) {
+            if (ci.getContent() != null && !ci.getContent().trim().isEmpty()) {
+                LocalDateTime ciTimestamp = ci.getCreatedAt() != null ? 
+                    ci.getCreatedAt() : repoCreatedAt.plusMinutes(30);
+                
+                Map<String, Object> ciOp = new HashMap<>();
+                ciOp.put("type", "ci");
+                ciOp.put("action", "CI Workflow Generated");
+                ciOp.put("timestamp", ciTimestamp);
+                ciOp.put("status", getCiStatus(ci));
+                ciOp.put("workflowContent", ci.getContent());
+                operations.add(ciOp);
+                
+                if (ciTimestamp.isAfter(lastActivity)) {
+                    lastActivity = ciTimestamp;
+                }
+                
+                // ✅ IMPROVED: Add CD workflows for this specific CI workflow
+                if (ci.getCdWorkflows() != null && !ci.getCdWorkflows().isEmpty()) {
+                    for (CdWorkflow cd : ci.getCdWorkflows()) {
+                        if (cd.getContent() != null && !cd.getContent().trim().isEmpty()) {
+                            LocalDateTime cdTimestamp = cd.getCreatedAt() != null ? 
+                                cd.getCreatedAt() : ciTimestamp.plusMinutes(15);
+                            
+                            Map<String, Object> cdOp = new HashMap<>();
+                            cdOp.put("type", "cd");
+                            cdOp.put("action", "CD Workflow Generated");
+                            cdOp.put("timestamp", cdTimestamp);
+                            cdOp.put("status", getCdStatus(cd));
+                            cdOp.put("workflowContent", cd.getContent());
+                            operations.add(cdOp);
+                            
+                            if (cdTimestamp.isAfter(lastActivity)) {
+                                lastActivity = cdTimestamp;
+                            }
+                            
+                            System.out.println("✅ Added CD workflow to history for repo: " + repo.getRepoId());
+                        }
                     }
                 }
             }
         }
-        
-        // ✅ Use existing method - find CD workflows by user ID and filter manually
+    }
+    
+    // ✅ FALLBACK: If CD workflows aren't loaded via relationship, fetch them separately
+    try {
         List<CdWorkflow> allCdWorkflows = cdWorkflowRepository.findByCiWorkflow_Repo_User_Id(userId);
         for (CdWorkflow cd : allCdWorkflows) {
-            // Check if this CD belongs to current repo
+            // Check if this CD belongs to current repo and isn't already added
             if (cd.getCiWorkflow() != null && 
                 cd.getCiWorkflow().getRepo() != null && 
                 cd.getCiWorkflow().getRepo().getRepoId().equals(repo.getRepoId()) &&
                 cd.getContent() != null && !cd.getContent().trim().isEmpty()) {
                 
-                LocalDateTime cdTimestamp = cd.getCreatedAt() != null ? 
-                    cd.getCreatedAt() : repoCreatedAt.plusHours(1);
+                // Check if we already added this CD workflow
+                boolean alreadyAdded = operations.stream().anyMatch(op -> 
+                    "cd".equals(op.get("type")) && 
+                    cd.getContent().equals(op.get("workflowContent"))
+                );
                 
-                Map<String, Object> cdOp = new HashMap<>();
-                cdOp.put("type", "cd");
-                cdOp.put("action", "CD Workflow Generated");
-                cdOp.put("timestamp", cdTimestamp);
-                cdOp.put("status", getCdStatus(cd));
-                cdOp.put("workflowContent", cd.getContent());
-                operations.add(cdOp);
-                
-                if (cdTimestamp.isAfter(lastActivity)) {
-                    lastActivity = cdTimestamp;
+                if (!alreadyAdded) {
+                    LocalDateTime cdTimestamp = cd.getCreatedAt() != null ? 
+                        cd.getCreatedAt() : repoCreatedAt.plusHours(1);
+                    
+                    Map<String, Object> cdOp = new HashMap<>();
+                    cdOp.put("type", "cd");
+                    cdOp.put("action", "CD Workflow Generated");
+                    cdOp.put("timestamp", cdTimestamp);
+                    cdOp.put("status", getCdStatus(cd));
+                    cdOp.put("workflowContent", cd.getContent());
+                    operations.add(cdOp);
+                    
+                    if (cdTimestamp.isAfter(lastActivity)) {
+                        lastActivity = cdTimestamp;
+                    }
+                    
+                    System.out.println("✅ Added CD workflow (fallback) to history for repo: " + repo.getRepoId());
                 }
             }
         }
-        
-        // ✅ Fix sorting with proper type handling
-        operations.sort((a, b) -> {
-            Object objA = a.get("timestamp");
-            Object objB = b.get("timestamp");
-            
-            LocalDateTime dateA = null;
-            LocalDateTime dateB = null;
-            
-            if (objA instanceof LocalDateTime) {
-                dateA = (LocalDateTime) objA;
-            }
-            if (objB instanceof LocalDateTime) {
-                dateB = (LocalDateTime) objB;
-            }
-            
-            if (dateA == null && dateB == null) return 0;
-            if (dateA == null) return 1;
-            if (dateB == null) return -1;
-            
-            return dateB.compareTo(dateA);
-        });
-        
-        repoEvent.put("operations", operations);
-        repoEvent.put("lastActivity", lastActivity);
-        repoEvent.put("operationCount", operations.size());
-        
-        String summaryAction = createSummaryAction(operations);
-        repoEvent.put("action", summaryAction);
-        repoEvent.put("createdAt", lastActivity);
-        
-        return repoEvent;
+    } catch (Exception e) {
+        System.err.println("❌ Error fetching CD workflows: " + e.getMessage());
+        // Continue without crashing
     }
+    
+    // ✅ Sort operations by timestamp
+    operations.sort((a, b) -> {
+        Object objA = a.get("timestamp");
+        Object objB = b.get("timestamp");
+        
+        LocalDateTime dateA = null;
+        LocalDateTime dateB = null;
+        
+        if (objA instanceof LocalDateTime) {
+            dateA = (LocalDateTime) objA;
+        }
+        if (objB instanceof LocalDateTime) {
+            dateB = (LocalDateTime) objB;
+        }
+        
+        if (dateA == null && dateB == null) return 0;
+        if (dateA == null) return 1;
+        if (dateB == null) return -1;
+        
+        return dateA.compareTo(dateB); // Ascending order (oldest first)
+    });
+    
+    repoEvent.put("operations", operations);
+    repoEvent.put("lastActivity", lastActivity);
+    repoEvent.put("operationCount", operations.size());
+    
+    String summaryAction = createSummaryAction(operations);
+    repoEvent.put("action", summaryAction);
+    repoEvent.put("createdAt", lastActivity);
+    
+    return repoEvent;
+}
     
     private String createSummaryAction(List<Map<String, Object>> operations) {
         boolean hasConnection = false;
