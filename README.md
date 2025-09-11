@@ -1,6 +1,6 @@
 # 🚀 DeployMate
 
-> Génère automatiquement des workflows **GitHub Actions** pour vos projets **Spring Boot (Maven/Gradle)** et **Node.js (npm)**, puis pousse le YAML prêt à l’emploi dans votre dépôt GitHub.
+Génère automatiquement des workflows **GitHub Actions** pour vos projets **Spring Boot (Maven/Gradle)** et **Node.js (npm)**, puis pousse le YAML prêt à l’emploi dans votre dépôt GitHub.
 
 ---
 
