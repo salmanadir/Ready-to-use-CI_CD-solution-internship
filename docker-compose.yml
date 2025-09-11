@@ -3,7 +3,7 @@ services:
     build:
       context: ./frontend
     environment:
-      - VITE_API_BASE_URL=http://localhost:8080  # 👈 IMPORTANT en mode Docker
+      - VITE_API_BASE_URL=http://localhost:8080
     depends_on:
       - backend
     ports:
