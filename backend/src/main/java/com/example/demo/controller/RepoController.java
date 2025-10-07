@@ -1,8 +1,8 @@
 package com.example.demo.controller;  
-  
+
 import java.util.List;  
 import java.util.Map;  
-  
+
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;  
 import org.springframework.security.core.Authentication;  
@@ -14,19 +14,19 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;  
 import org.springframework.web.bind.annotation.RequestMapping;  
 import org.springframework.web.bind.annotation.RestController;  
-  
+
 import com.example.demo.model.Repo;  
 import com.example.demo.model.User;  
 import com.example.demo.service.RepoSelectionService;  
-  
+
 @RestController  
 @RequestMapping("/api/repositories")  
 @CrossOrigin(origins = "*")  
 public class RepoController {  
-  
-    @Autowired  
-    private RepoSelectionService repoSelectionService;  
-  
+
+    @Autowired
+    private RepoSelectionService repoSelectionService;
+
     @GetMapping("/available")  
     public ResponseEntity<?> getAvailableRepos(Authentication authentication) {  
         try {  
@@ -37,20 +37,20 @@ public class RepoController {
             return ResponseEntity.badRequest().body(Map.of("success", false, "message", e.getMessage()));  
         }  
     }  
-  
+
     @PostMapping("/select")  
     public ResponseEntity<?> selectRepository(Authentication authentication, @RequestBody Map<String, Object> request) {  
         try {  
             User user = (User) authentication.getPrincipal();  
             Map<String, Object> repoData = (Map<String, Object>) request.get("repoData");  
-  
+
             Repo selectedRepo = repoSelectionService.selectRepository(user.getId(), repoData);  
             return ResponseEntity.ok(Map.of("success", true, "repository", selectedRepo));  
         } catch (RuntimeException e) {  
             return ResponseEntity.badRequest().body(Map.of("success", false, "message", e.getMessage()));  
-        }  
-    }  
-  
+        }
+    } 
+
     @GetMapping("/selected")  
     public ResponseEntity<?> getSelectedRepos(Authentication authentication) {  
         try {  
@@ -61,7 +61,7 @@ public class RepoController {
             return ResponseEntity.badRequest().body(Map.of("success", false, "message", e.getMessage()));  
         }  
     }  
-  
+
     @DeleteMapping("/repository/{repoId}")  
     public ResponseEntity<?> deselectRepository(Authentication authentication, @PathVariable Long repoId) {  
         try {  
